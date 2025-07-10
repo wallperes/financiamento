@@ -19,6 +19,7 @@ def simular_financiamento(
     valor_parcela_pos,
     percentual_minimo_quitacao=0.3
 ):
+    # Se entrada não parcelada, já desconta do saldo inicial
     saldo_devedor = valor_total_imovel - valor_entrada if not entrada_parcelada else valor_total_imovel
 
     historico = []
@@ -31,8 +32,11 @@ def simular_financiamento(
 
         amortizacao_mes = parcelas_mensais_pre
 
+        # Se entrada parcelada, somar mensalmente
+        entrada_paga = 0
         if entrada_parcelada and m <= (valor_entrada // entrada_mensal if entrada_mensal > 0 else 0):
             amortizacao_mes += entrada_mensal
+            entrada_paga = entrada_mensal
 
         if m in parcelas_semestrais:
             amortizacao_mes += parcelas_semestrais[m]
@@ -42,6 +46,7 @@ def simular_financiamento(
 
         saldo_devedor -= amortizacao_mes
         saldo_devedor = max(saldo_devedor, 0)
+
         total_amortizado_pre += amortizacao_mes
 
         historico.append({
@@ -55,9 +60,15 @@ def simular_financiamento(
             'Ajuste IPCA (R$)': 0
         })
 
+    # Corrigir valor quitado considerando entrada à vista, se for o caso
     valor_quitado = total_amortizado_pre
-    if valor_quitado < percentual_minimo_quitacao * valor_total_imovel:
-        st.warning(f"Atenção: valor quitado na pré ({valor_quitado:,.2f}) não atingiu {percentual_minimo_quitacao*100:.0f}% do valor do imóvel.")
+    if not entrada_parcelada:
+        valor_quitado += valor_entrada
+
+    percentual_quitado = valor_quitado / valor_total_imovel
+
+    if percentual_quitado < percentual_minimo_quitacao:
+        st.warning(f"Atenção: valor quitado na pré ({valor_quitado:,.2f}) equivale a {percentual_quitado*100:.2f}% do valor do imóvel, abaixo de {percentual_minimo_quitacao*100:.0f}%.")
 
     # Fase pós-chaves
     for m in range(1, meses_pos + 1):
@@ -91,15 +102,15 @@ st.title("Simulador de Financiamento Imobiliário 🚧🏠")
 
 st.sidebar.header("Parâmetros Gerais")
 
-valor_total_imovel = st.sidebar.number_input("Valor total do imóvel", value=445000.0)
-valor_entrada = st.sidebar.number_input("Valor de entrada total", value=23000.0)
+valor_total_imovel = st.sidebar.number_input("Valor total do imóvel", value=455750.0)
+valor_entrada = st.sidebar.number_input("Valor de entrada total", value=22270.54)
 
 entrada_parcelada = st.sidebar.checkbox("Entrada parcelada?", value=False)
 entrada_mensal = 0
 if entrada_parcelada:
     entrada_mensal = st.sidebar.number_input("Valor mensal da entrada", value=5000.0)
 
-meses_pre = st.sidebar.number_input("Meses de pré-chaves", value=18)
+meses_pre = st.sidebar.number_input("Meses de pré-chaves", value=17)
 meses_pos = st.sidebar.number_input("Meses de pós-chaves", value=100)
 incc_medio = st.sidebar.number_input("INCC médio mensal", value=0.0046, step=0.0001, format="%.4f")
 ipca_medio = st.sidebar.number_input("IPCA médio mensal", value=0.0046, step=0.0001, format="%.4f")
@@ -118,7 +129,7 @@ for i in range(2):  # Exemplo: 2 semestrais
 st.sidebar.subheader("Parcelas Anuais")
 parcelas_anuais = {}
 for i in range(1):  # Exemplo: 1 anual
-    mes = st.sidebar.number_input(f"Mês anual {i+1}", value=18, key=f"anu_{i}")
+    mes = st.sidebar.number_input(f"Mês anual {i+1}", value=17, key=f"anu_{i}")
     valor = st.sidebar.number_input(f"Valor anual {i+1} (R$)", value=43300.0, key=f"anu_val_{i}")
     parcelas_anuais[mes] = valor
 
