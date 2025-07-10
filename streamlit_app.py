@@ -1,6 +1,175 @@
 import streamlit as st
+import pandas as pd
+import matplotlib.pyplot as plt
 
-st.title("🎈 My new app")
-st.write(
-    "Let's start building! For help and inspiration, head over to [docs.streamlit.io](https://docs.streamlit.io/)."
-)
+# ------------------------------
+# Função principal
+# ------------------------------
+
+def simular_financiamento(
+    valor_total_imovel,
+    valor_entrada,
+    entrada_parcelada,
+    entrada_mensal,
+    meses_pre,
+    meses_pos,
+    incc_medio,
+    ipca_medio,
+    juros_mensal,
+    parcelas_mensais_pre,
+    parcelas_semestrais,
+    parcelas_anuais,
+    percentual_minimo_quitacao=0.3
+):
+    saldo_devedor = valor_total_imovel - valor_entrada if not entrada_parcelada else valor_total_imovel
+
+    historico = []
+
+    # Fase pré-chaves
+    for m in range(1, meses_pre + 1):
+        incc_valor = saldo_devedor * incc_medio
+        saldo_devedor += incc_valor
+
+        amortizacao_mes = parcelas_mensais_pre
+
+        if entrada_parcelada and m <= (valor_entrada // entrada_mensal if entrada_mensal > 0 else 0):
+            amortizacao_mes += entrada_mensal
+
+        if m in parcelas_semestrais:
+            amortizacao_mes += parcelas_semestrais[m]
+
+        if m in parcelas_anuais:
+            amortizacao_mes += parcelas_anuais[m]
+
+        saldo_devedor -= amortizacao_mes
+        saldo_devedor = max(saldo_devedor, 0)
+
+        historico.append({
+            'Fase': 'Pré',
+            'Mês': m,
+            'Saldo Devedor': saldo_devedor,
+            'Parcela': amortizacao_mes,
+            'Amortização': amortizacao_mes,
+            'Juros': 0,
+            'Ajuste INCC (R$)': incc_valor,
+            'Ajuste IPCA (R$)': 0
+        })
+
+    valor_quitado = valor_total_imovel - saldo_devedor
+    if valor_quitado < percentual_minimo_quitacao * valor_total_imovel:
+        st.warning(f"Atenção: percentual quitado ({valor_quitado:.2f}) não atingiu {percentual_minimo_quitacao*100:.0f}% antes das chaves.")
+
+    amortizacao_fixa = saldo_devedor / meses_pos if meses_pos > 0 else 0
+
+    # Fase pós-chaves
+    for m in range(1, meses_pos + 1):
+        ipca_valor = saldo_devedor * ipca_medio
+        saldo_devedor += ipca_valor
+
+        juros = saldo_devedor * juros_mensal
+        parcela = amortizacao_fixa + juros
+        saldo_devedor -= amortizacao_fixa
+        saldo_devedor = max(saldo_devedor, 0)
+
+        historico.append({
+            'Fase': 'Pós',
+            'Mês': meses_pre + m,
+            'Saldo Devedor': saldo_devedor,
+            'Parcela': parcela,
+            'Amortização': amortizacao_fixa,
+            'Juros': juros,
+            'Ajuste INCC (R$)': 0,
+            'Ajuste IPCA (R$)': ipca_valor
+        })
+
+    df = pd.DataFrame(historico)
+    return df
+
+# ------------------------------
+# Streamlit interface
+# ------------------------------
+
+st.title("Simulador de Financiamento Imobiliário 🚧🏠")
+
+st.sidebar.header("Parâmetros Gerais")
+
+valor_total_imovel = st.sidebar.number_input("Valor total do imóvel", value=445000.0)
+valor_entrada = st.sidebar.number_input("Valor de entrada total", value=23000.0)
+
+entrada_parcelada = st.sidebar.checkbox("Entrada parcelada?", value=False)
+entrada_mensal = 0
+if entrada_parcelada:
+    entrada_mensal = st.sidebar.number_input("Valor mensal da entrada", value=5000.0)
+
+meses_pre = st.sidebar.number_input("Meses de pré-chaves", value=18)
+meses_pos = st.sidebar.number_input("Meses de pós-chaves", value=100)
+incc_medio = st.sidebar.number_input("INCC médio mensal", value=0.0046, step=0.0001, format="%.4f")
+ipca_medio = st.sidebar.number_input("IPCA médio mensal", value=0.0046, step=0.0001, format="%.4f")
+juros_mensal = st.sidebar.number_input("Juros remuneratórios mensal", value=0.01, step=0.001, format="%.3f")
+
+parcelas_mensais_pre = st.sidebar.number_input("Parcela mensal pré (R$)", value=3983.38)
+
+st.sidebar.subheader("Parcelas Semestrais")
+parcelas_semestrais = {}
+for i in range(2):  # exemplo: 2 semestrais
+    mes = st.sidebar.number_input(f"Mês semestral {i+1}", value=6 * (i+1), key=f"sem_{i}")
+    valor = st.sidebar.number_input(f"Valor semestral {i+1} (R$)", value=6000.0, key=f"sem_val_{i}")
+    parcelas_semestrais[mes] = valor
+
+st.sidebar.subheader("Parcelas Anuais")
+parcelas_anuais = {}
+for i in range(1):  # exemplo: 1 anual
+    mes = st.sidebar.number_input(f"Mês anual {i+1}", value=18, key=f"anu_{i}")
+    valor = st.sidebar.number_input(f"Valor anual {i+1} (R$)", value=43300.0, key=f"anu_val_{i}")
+    parcelas_anuais[mes] = valor
+
+# Botão
+if st.button("Simular"):
+    df_resultado = simular_financiamento(
+        valor_total_imovel,
+        valor_entrada,
+        entrada_parcelada,
+        entrada_mensal,
+        meses_pre,
+        meses_pos,
+        incc_medio,
+        ipca_medio,
+        juros_mensal,
+        parcelas_mensais_pre,
+        parcelas_semestrais,
+        parcelas_anuais
+    )
+
+    st.subheader("Tabela de Simulação (primeiros 30 meses)")
+    st.dataframe(df_resultado.head(30))
+
+    st.subheader("Gráficos")
+
+    fig, ax = plt.subplots(1, 2, figsize=(16, 6))
+
+    # Saldo
+    ax[0].plot(df_resultado['Mês'], df_resultado['Saldo Devedor'], label='Saldo Devedor', color='blue')
+    ax[0].set_title("Evolução do Saldo Devedor")
+    ax[0].set_xlabel("Mês")
+    ax[0].set_ylabel("R$")
+    ax[0].grid(True)
+    ax[0].legend()
+
+    # Parcelas
+    ax[1].plot(df_resultado['Mês'], df_resultado['Parcela'], label='Parcela Total', color='black')
+    ax[1].plot(df_resultado['Mês'], df_resultado['Amortização'], label='Amortização', color='green')
+    ax[1].plot(df_resultado['Mês'], df_resultado['Juros'], label='Juros', color='red')
+    ax[1].set_title("Evolução da Parcela")
+    ax[1].set_xlabel("Mês")
+    ax[1].set_ylabel("R$")
+    ax[1].grid(True)
+    ax[1].legend()
+
+    st.pyplot(fig)
+
+    st.download_button(
+        label="💾 Baixar tabela completa (Excel)",
+        data=df_resultado.to_csv(index=False).encode('utf-8'),
+        file_name='simulacao_financiamento.csv',
+        mime='text/csv'
+    )
