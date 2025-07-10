@@ -90,15 +90,15 @@ st.title("Simulador de Financiamento Imobiliário 🚧🏠")
 
 st.sidebar.header("Parâmetros Gerais")
 
-valor_total_imovel = st.sidebar.number_input("Valor total do imóvel", value=445000.0)
-valor_entrada = st.sidebar.number_input("Valor de entrada total", value=23000.0)
+valor_total_imovel = st.sidebar.number_input("Valor total do imóvel", value=445750.0)
+valor_entrada = st.sidebar.number_input("Valor de entrada total", value=22270.54)
 
 entrada_parcelada = st.sidebar.checkbox("Entrada parcelada?", value=False)
 entrada_mensal = 0
 if entrada_parcelada:
     entrada_mensal = st.sidebar.number_input("Valor mensal da entrada", value=5000.0)
 
-meses_pre = st.sidebar.number_input("Meses de pré-chaves", value=18)
+meses_pre = st.sidebar.number_input("Meses de pré-chaves", value=17)
 meses_pos = st.sidebar.number_input("Meses de pós-chaves", value=100)
 incc_medio = st.sidebar.number_input("INCC médio mensal", value=0.0046, step=0.0001, format="%.4f")
 ipca_medio = st.sidebar.number_input("IPCA médio mensal", value=0.0046, step=0.0001, format="%.4f")
@@ -116,7 +116,7 @@ for i in range(2):  # Exemplo: 2 semestrais
 st.sidebar.subheader("Parcelas Anuais")
 parcelas_anuais = {}
 for i in range(1):  # Exemplo: 1 anual
-    mes = st.sidebar.number_input(f"Mês anual {i+1}", value=18, key=f"anu_{i}")
+    mes = st.sidebar.number_input(f"Mês anual {i+1}", value=17, key=f"anu_{i}")
     valor = st.sidebar.number_input(f"Valor anual {i+1} (R$)", value=43300.0, key=f"anu_val_{i}")
     parcelas_anuais[mes] = valor
 
