@@ -1,10 +1,7 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
-
-# ------------------------------
-# Função principal
-# ------------------------------
+import io
 
 def simular_financiamento(
     valor_total_imovel,
@@ -86,7 +83,7 @@ def simular_financiamento(
     return df
 
 # ------------------------------
-# Streamlit interface
+# Streamlit Interface
 # ------------------------------
 
 st.title("Simulador de Financiamento Imobiliário 🚧🏠")
@@ -111,19 +108,18 @@ parcelas_mensais_pre = st.sidebar.number_input("Parcela mensal pré (R$)", value
 
 st.sidebar.subheader("Parcelas Semestrais")
 parcelas_semestrais = {}
-for i in range(2):  # exemplo: 2 semestrais
+for i in range(2):  # Exemplo: 2 semestrais
     mes = st.sidebar.number_input(f"Mês semestral {i+1}", value=6 * (i+1), key=f"sem_{i}")
     valor = st.sidebar.number_input(f"Valor semestral {i+1} (R$)", value=6000.0, key=f"sem_val_{i}")
     parcelas_semestrais[mes] = valor
 
 st.sidebar.subheader("Parcelas Anuais")
 parcelas_anuais = {}
-for i in range(1):  # exemplo: 1 anual
+for i in range(1):  # Exemplo: 1 anual
     mes = st.sidebar.number_input(f"Mês anual {i+1}", value=18, key=f"anu_{i}")
     valor = st.sidebar.number_input(f"Valor anual {i+1} (R$)", value=43300.0, key=f"anu_val_{i}")
     parcelas_anuais[mes] = valor
 
-# Botão
 if st.button("Simular"):
     df_resultado = simular_financiamento(
         valor_total_imovel,
@@ -140,14 +136,13 @@ if st.button("Simular"):
         parcelas_anuais
     )
 
-    st.subheader("Tabela de Simulação (primeiros 30 meses)")
-    st.dataframe(df_resultado.head(30))
+    st.subheader("Tabela de Simulação (todos os meses)")
+    st.dataframe(df_resultado)
 
     st.subheader("Gráficos")
 
     fig, ax = plt.subplots(1, 2, figsize=(16, 6))
 
-    # Saldo
     ax[0].plot(df_resultado['Mês'], df_resultado['Saldo Devedor'], label='Saldo Devedor', color='blue')
     ax[0].set_title("Evolução do Saldo Devedor")
     ax[0].set_xlabel("Mês")
@@ -155,7 +150,6 @@ if st.button("Simular"):
     ax[0].grid(True)
     ax[0].legend()
 
-    # Parcelas
     ax[1].plot(df_resultado['Mês'], df_resultado['Parcela'], label='Parcela Total', color='black')
     ax[1].plot(df_resultado['Mês'], df_resultado['Amortização'], label='Amortização', color='green')
     ax[1].plot(df_resultado['Mês'], df_resultado['Juros'], label='Juros', color='red')
@@ -167,9 +161,15 @@ if st.button("Simular"):
 
     st.pyplot(fig)
 
+    # Exportar para Excel
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df_resultado.to_excel(writer, index=False, sheet_name='Simulação')
+    excel_data = output.getvalue()
+
     st.download_button(
         label="💾 Baixar tabela completa (Excel)",
-        data=df_resultado.to_csv(index=False).encode('utf-8'),
-        file_name='simulacao_financiamento.csv',
-        mime='text/csv'
+        data=excel_data,
+        file_name='simulacao_financiamento.xlsx',
+        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
