@@ -16,10 +16,9 @@ def simular_financiamento(
     parcelas_mensais_pre,
     parcelas_semestrais,
     parcelas_anuais,
-    valor_parcela_pos,
+    valor_amortizacao_pos,
     percentual_minimo_quitacao=0.3
 ):
-    # Se entrada não parcelada, já desconta do saldo inicial
     saldo_devedor = valor_total_imovel - valor_entrada if not entrada_parcelada else valor_total_imovel
 
     historico = []
@@ -32,7 +31,7 @@ def simular_financiamento(
 
         amortizacao_mes = parcelas_mensais_pre
 
-        # Se entrada parcelada, somar mensalmente
+        # Entrada parcelada
         entrada_paga = 0
         if entrada_parcelada and m <= (valor_entrada // entrada_mensal if entrada_mensal > 0 else 0):
             amortizacao_mes += entrada_mensal
@@ -60,7 +59,7 @@ def simular_financiamento(
             'Ajuste IPCA (R$)': 0
         })
 
-    # Corrigir valor quitado considerando entrada à vista, se for o caso
+    # Valor quitado considerando entrada à vista
     valor_quitado = total_amortizado_pre
     if not entrada_parcelada:
         valor_quitado += valor_entrada
@@ -76,7 +75,9 @@ def simular_financiamento(
         saldo_devedor += ipca_valor
 
         juros = saldo_devedor * juros_mensal
-        amortizacao = max(valor_parcela_pos - juros, 0)
+        amortizacao = valor_amortizacao_pos
+        parcela_final = amortizacao + juros
+
         saldo_devedor -= amortizacao
         saldo_devedor = max(saldo_devedor, 0)
 
@@ -84,7 +85,7 @@ def simular_financiamento(
             'Fase': 'Pós',
             'Mês': meses_pre + m,
             'Saldo Devedor': saldo_devedor,
-            'Parcela': valor_parcela_pos,
+            'Parcela': parcela_final,
             'Amortização': amortizacao,
             'Juros': juros,
             'Ajuste INCC (R$)': 0,
@@ -117,7 +118,7 @@ ipca_medio = st.sidebar.number_input("IPCA médio mensal", value=0.0046, step=0.
 juros_mensal = st.sidebar.number_input("Juros remuneratórios mensal", value=0.01, step=0.001, format="%.3f")
 
 parcelas_mensais_pre = st.sidebar.number_input("Parcela mensal pré (R$)", value=3983.38)
-valor_parcela_pos = st.sidebar.number_input("Parcela mensal pós (R$)", value=3104.62)
+valor_amortizacao_pos = st.sidebar.number_input("Amortização mensal pós (R$)", value=3104.62)
 
 st.sidebar.subheader("Parcelas Semestrais")
 parcelas_semestrais = {}
@@ -147,7 +148,7 @@ if st.button("Simular"):
         parcelas_mensais_pre,
         parcelas_semestrais,
         parcelas_anuais,
-        valor_parcela_pos
+        valor_amortizacao_pos
     )
 
     st.subheader("Tabela de Simulação (todos os meses)")
