@@ -177,9 +177,9 @@ if entrada_parcelada:
 
 meses_pre = st.sidebar.number_input("Meses de pré-chaves", value=17)
 meses_pos = st.sidebar.number_input("Meses de pós-chaves", value=100)
-incc_medio = st.sidebar.number_input("INCC médio mensal", value=0.00544640781, step=0.0001, format="%.4f")
-ipca_medio = st.sidebar.number_input("IPCA médio mensal", value=0.00466933642, step=0.0001, format="%.4f")
-juros_mensal = st.sidebar.number_input("Juros remuneratórios mensal", value=0.01, step=0.001, format="%.3f")
+incc_medio = st.sidebar.number_input("INCC médio mensal", value=0.00544640781, step=0.00000001, format="%.8f")
+ipca_medio = st.sidebar.number_input("IPCA médio mensal", value=0.00466933642, step=0.00000001, format="%.8f")
+juros_mensal = st.sidebar.number_input("Juros remuneratórios mensal", value=0.01, step=0.00000001, format="%.8f")
 
 parcelas_mensais_pre = st.sidebar.number_input("Parcela mensal pré (R$)", value=3983.38)
 valor_amortizacao_pos = st.sidebar.number_input("Amortização mensal pós (R$)", value=3104.62)
