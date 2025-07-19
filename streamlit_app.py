@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 import io
+from datetime import datetime, timedelta
 
 def format_currency(value):
     """Formata valores no padrão brasileiro R$ 1.234,56"""
@@ -175,6 +176,73 @@ def simular_financiamento(
 
     return pd.DataFrame(historico)
 
+# FUNÇÃO AJUSTADA: Buscar índices econômicos apenas via Google Sheets
+def buscar_indices_google_sheets(mes_inicial, meses_total, url_google_sheets):
+    """
+    Busca índices INCC e IPCA históricos do Google Sheets
+    :param mes_inicial: String no formato 'MM/AAAA'
+    :param meses_total: Quantidade total de meses necessários
+    :param url_google_sheets: URL de planilha pública do Google Sheets
+    :return: Dicionário com índices por mês {mês: {'incc': float, 'ipca': float}}
+    """
+    # Converter mês inicial para objeto date
+    try:
+        data_inicio = datetime.strptime(mes_inicial, "%m/%Y")
+    except ValueError:
+        st.error("Formato do mês inicial inválido! Use MM/AAAA (ex: 01/2023)")
+        return {}
+    
+    indices = {}
+    
+    try:
+        # Converter URL para formato de exportação CSV
+        if 'edit' in url_google_sheets:
+            url_google_sheets = url_google_sheets.replace('/edit#gid=', '/export?format=csv&gid=0')
+        
+        # Ler dados do Google Sheets
+        df = pd.read_csv(url_google_sheets)
+        
+        # Renomear colunas para facilitar o acesso
+        df.columns = ['Mês', 'IPCA', 'INCC']
+        
+        # Converter valores de string para float (considerando vírgula como separador decimal)
+        df['IPCA'] = df['IPCA'].str.replace(',', '.').astype(float)
+        df['INCC'] = df['INCC'].str.replace(',', '.').astype(float)
+        
+        # Converter coluna 'Mês' para datetime
+        df['Data'] = pd.to_datetime(df['Mês'], format='%Y-%m')
+        
+        # Criar coluna com formato MM/AAAA
+        df['MesFormatado'] = df['Data'].dt.strftime('%m/%Y')
+        
+        # Popular dicionário de índices
+        current_date = data_inicio
+        for mes in range(1, meses_total + 1):
+            month_str = current_date.strftime("%m/%Y")
+            
+            # Buscar dados na planilha
+            match = df[df['MesFormatado'] == month_str]
+            
+            if not match.empty:
+                indices[mes] = {
+                    'incc': float(match['INCC'].iloc[0]),
+                    'ipca': float(match['IPCA'].iloc[0])
+                }
+            else:
+                # Se não encontrar, usar 0 para não causar erro
+                indices[mes] = {'incc': 0, 'ipca': 0}
+            
+            # Avançar para o próximo mês
+            current_date = current_date + timedelta(days=32)
+            current_date = current_date.replace(day=1)
+        
+        st.success("Dados carregados via Google Sheets!")
+        return indices
+        
+    except Exception as e:
+        st.error(f"Erro ao acessar Google Sheets: {str(e)}")
+        return {}
+
 # ------------------------------
 # Interface Streamlit
 # ------------------------------
@@ -182,6 +250,9 @@ def simular_financiamento(
 st.title("Simulador de Financiamento Imobiliário 🚧🏠")
 
 st.sidebar.header("Parâmetros Gerais")
+
+# Mês inicial do financiamento
+mes_inicial = st.sidebar.text_input("Mês inicial do financiamento (MM/AAAA)", value="01/2023")
 
 valor_total_imovel = st.sidebar.number_input("Valor total do imóvel", value=455750.0)
 valor_entrada = st.sidebar.number_input("Valor de entrada total", value=22270.54)
@@ -216,7 +287,14 @@ for i in range(1):  # Exemplo: 1 anual
     if mes > 0 and valor > 0:
         parcelas_anuais[int(mes)] = valor
 
-# Tabela para valores reais de índices
+# Seção: Fonte dos índices (apenas Google Sheets)
+st.sidebar.subheader("Fonte dos Índices")
+url_google_sheets = st.sidebar.text_input(
+    "URL pública do Google Sheets",
+    value="https://docs.google.com/spreadsheets/d/1mYkBbhBKf_BpW9xDNWTBn-u-45hW-Mtu4OpL9lkZqZk/edit?usp=sharing"
+)
+
+# Tabela para valores reais de índices (opcional)
 st.subheader("Valores Reais de Índices (opcional)")
 st.write("Preencha os valores reais de INCC e IPCA para meses específicos (em decimal):")
 
@@ -283,13 +361,27 @@ with col2:
 
 with col3:
     if st.button("Simular com Valores Reais"):
-        # Converter DataFrame para dicionário de valores reais
-        valores_reais = {}
-        for mes, row in edited_df.iterrows():
-            incc_val = row['INCC']
-            ipca_val = row['IPCA']
-            if incc_val != 0 or ipca_val != 0:
-                valores_reais[mes] = {'incc': incc_val, 'ipca': ipca_val}
+        # Buscar índices do Google Sheets
+        valores_reais = buscar_indices_google_sheets(mes_inicial, total_meses, url_google_sheets)
+        
+        # Se a busca não retornou nada, tentar a tabela editada
+        if not valores_reais:
+            # Converter DataFrame para dicionário de valores reais
+            for mes, row in edited_df.iterrows():
+                incc_val = row['INCC']
+                ipca_val = row['IPCA']
+                if incc_val != 0 or ipca_val != 0:
+                    valores_reais[mes] = {'incc': incc_val, 'ipca': ipca_val}
+        
+        # Se ainda estiver vazio, usar médios
+        if not valores_reais:
+            st.warning("Usando valores médios para índices.")
+            for mes in range(1, total_meses+1):
+                fase = 'Pré' if mes <= meses_pre else 'Pós'
+                valores_reais[mes] = {
+                    'incc': incc_medio if fase=='Pré' else 0,
+                    'ipca': ipca_medio if fase=='Pós' else 0
+                }
 
         df_resultado = simular_financiamento(
             valor_total_imovel,
