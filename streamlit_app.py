@@ -3,6 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import io
 from datetime import datetime, timedelta
+from pysgs import SGS  # Biblioteca para acessar dados do Banco Central
 
 def format_currency(value):
     """Formata valores no padrão brasileiro R$ 1.234,56"""
@@ -176,82 +177,56 @@ def simular_financiamento(
 
     return pd.DataFrame(historico)
 
-# FUNÇÃO CORRIGIDA: Buscar índices econômicos do Google Sheets
-def buscar_indices_google_sheets(mes_inicial, meses_total, url_google_sheets):
+# FUNÇÃO: Buscar índices do Banco Central usando pysgs
+def buscar_indices_bc(mes_inicial, meses_total):
     """
-    Busca índices INCC e IPCA históricos do Google Sheets
+    Busca índices INCC (código 7456) e IPCA (código 433) do Banco Central
     :param mes_inicial: String no formato 'MM/AAAA'
     :param meses_total: Quantidade total de meses necessários
-    :param url_google_sheets: URL de planilha pública do Google Sheets
     :return: Dicionário com índices por mês {mês: {'incc': float, 'ipca': float}}
     """
-    # Converter mês inicial para objeto date
     try:
+        # Converter mês inicial para datetime
         data_inicio = datetime.strptime(mes_inicial, "%m/%Y")
-    except ValueError:
-        st.error("Formato do mês inicial inválido! Use MM/AAAA (ex: 01/2023)")
-        return {}
-    
-    indices = {}
-    
-    try:
-        # Converter URL para formato de exportação CSV
-        if 'edit' in url_google_sheets:
-            url_google_sheets = url_google_sheets.replace('/edit#gid=', '/export?format=csv&gid=0')
+        data_fim = data_inicio + timedelta(days=meses_total*31)  # Aproximação
         
-        # Ler dados do Google Sheets
-        df = pd.read_csv(url_google_sheets)
+        # Criar instância do SGS
+        sgs = SGS()
         
-        # Verificar se as colunas esperadas existem
-        if 'Mês' not in df.columns or 'IPCA' not in df.columns or 'INCC' not in df.columns:
-            # Se não tiver os nomes corretos, tentar usar as primeiras colunas
-            if len(df.columns) >= 3:
-                df.columns = ['Mês', 'IPCA', 'INCC'] + list(df.columns[3:])
-            else:
-                st.error("O formato da planilha não é compatível. Certifique-se de que as colunas são: Mês, IPCA, INCC")
-                return {}
+        # Buscar dados
+        df_ipca = sgs.fetch(433, start=data_inicio, end=data_fim)  # IPCA
+        df_incc = sgs.fetch(7456, start=data_inicio, end=data_fim)  # INCC
         
-        # Filtrar apenas as colunas necessárias
-        df = df[['Mês', 'IPCA', 'INCC']].copy()
+        # Converter para formato mensal e juntar
+        df = pd.concat([df_ipca, df_incc], axis=1)
+        df.columns = ['ipca', 'incc']
         
-        # Converter valores de string para float (considerando vírgula como separador decimal)
-        df['IPCA'] = df['IPCA'].astype(str).str.replace(',', '.').astype(float)
-        df['INCC'] = df['INCC'].astype(str).str.replace(',', '.').astype(float)
+        # Converter de percentual para decimal
+        df = df / 100
         
-        # Converter coluna 'Mês' para datetime
-        df['Data'] = pd.to_datetime(df['Mês'], format='%Y-%m', errors='coerce')
-        
-        # Se não conseguir converter, tentar outro formato
-        if df['Data'].isnull().any():
-            df['Data'] = pd.to_datetime(df['Mês'], format='%m/%Y', errors='coerce')
-        
-        # Criar coluna com formato MM/AAAA
-        df['MesFormatado'] = df['Data'].dt.strftime('%m/%Y')
-        
-        # Popular dicionário de índices
+        # Preencher dicionário de índices
+        indices = {}
         current_date = data_inicio
         for mes in range(1, meses_total + 1):
-            month_str = current_date.strftime("%m/%Y")
-            match = df[df['MesFormatado'] == month_str]
-            
-            if not match.empty:
+            month_str = current_date.strftime("%Y-%m")
+            if month_str in df.index:
+                row = df.loc[month_str]
                 indices[mes] = {
-                    'incc': float(match['INCC'].iloc[0]),
-                    'ipca': float(match['IPCA'].iloc[0])
+                    'incc': row['incc'],
+                    'ipca': row['ipca']
                 }
             else:
-                # Se não encontrar, usar 0 para não causar erro
                 indices[mes] = {'incc': 0, 'ipca': 0}
             
             # Avançar para o próximo mês
             current_date = current_date + timedelta(days=32)
             current_date = current_date.replace(day=1)
         
-        st.success("Dados carregados via Google Sheets!")
+        st.success("Dados carregados do Banco Central!")
         return indices
         
     except Exception as e:
-        st.error(f"Erro ao acessar Google Sheets: {str(e)}")
+        st.error(f"Erro ao acessar Banco Central: {str(e)}")
         return {}
 
 # ------------------------------
@@ -298,12 +273,10 @@ for i in range(1):  # Exemplo: 1 anual
     if mes > 0 and valor > 0:
         parcelas_anuais[int(mes)] = valor
 
-# Seção: Fonte dos índices (Google Sheets)
+# Seção: Fonte dos índices
 st.sidebar.subheader("Fonte dos Índices")
-url_google_sheets = st.sidebar.text_input(
-    "URL pública do Google Sheets",
-    value="https://docs.google.com/spreadsheets/d/1mYkBbhBKf_BpW9xDNWTBn-u-45hW-Mtu4OpL9lkZqZk/edit?usp=sharing"
-)
+fonte_indices = st.sidebar.radio("Selecione a fonte:", 
+                                ['Valores Médios', 'Banco Central'])
 
 # Tabela para valores reais de índices (opcional)
 st.subheader("Valores Reais de Índices (opcional)")
@@ -372,9 +345,11 @@ with col2:
 
 with col3:
     if st.button("Simular com Valores Reais"):
-        # Buscar índices do Google Sheets
-        valores_reais = buscar_indices_google_sheets(mes_inicial, total_meses, url_google_sheets)
-        
+        if fonte_indices == 'Banco Central':
+            valores_reais = buscar_indices_bc(mes_inicial, total_meses)
+        else:
+            valores_reais = {}
+            
         # Se a busca não retornou nada, tentar a tabela editada
         if not valores_reais:
             # Converter DataFrame para dicionário de valores reais
