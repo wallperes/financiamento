@@ -3,7 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import io
 from datetime import datetime, timedelta
-from bcb import sgs  # Biblioteca alternativa para acessar dados do BC
+from pysgs.sgs import SGS  # Importação corrigida
 
 def format_currency(value):
     """Formata valores no padrão brasileiro R$ 1.234,56"""
@@ -177,7 +177,7 @@ def simular_financiamento(
 
     return pd.DataFrame(historico)
 
-# FUNÇÃO: Buscar índices do Banco Central usando bcb
+# FUNÇÃO: Buscar índices do Banco Central usando pysgs
 def buscar_indices_bc(mes_inicial, meses_total):
     """
     Busca índices INCC (código 7456) e IPCA (código 433) do Banco Central
@@ -190,8 +190,18 @@ def buscar_indices_bc(mes_inicial, meses_total):
         data_inicio = datetime.strptime(mes_inicial, "%m/%Y")
         data_fim = data_inicio + timedelta(days=meses_total*31)  # Aproximação
         
+        # Criar instância do SGS
+        sgs = SGS()
+        
         # Buscar dados
-        df = sgs.get({'ipca': 433, 'incc': 7456}, start=data_inicio, end=data_fim)
+        df_ipca = sgs.fetch(433, start=data_inicio, end=data_fim)  # IPCA
+        df_incc = sgs.fetch(7456, start=data_inicio, end=data_fim)  # INCC
+        
+        # Juntar os dados em um único DataFrame
+        df = pd.DataFrame({
+            'ipca': df_ipca['value'],
+            'incc': df_incc['value']
+        })
         
         # Converter de percentual para decimal
         df = df / 100
@@ -200,7 +210,8 @@ def buscar_indices_bc(mes_inicial, meses_total):
         indices = {}
         current_date = data_inicio
         for mes in range(1, meses_total + 1):
-            month_str = current_date.strftime("%Y-%m")
+            month_str = current_date.strftime("%Y-%m-01")  # Formato YYYY-MM-DD
+            
             if month_str in df.index:
                 row = df.loc[month_str]
                 indices[mes] = {
