@@ -10,8 +10,7 @@ def obter_serie_sgs(codigo_serie: int, data_inicio: datetime.date) -> pd.DataFra
         sgs = SGS()
         dados = sgs.data(codigo_serie, start=data_inicio)
         dados.index = pd.to_datetime(dados.index)
-        dados = dados.fillna(0.0)
-        return dados
+        return dados.fillna(0.0)
     except Exception as e:
         st.error(f"Erro ao buscar a série {codigo_serie}: {e}")
         return pd.DataFrame()
@@ -31,22 +30,29 @@ Este aplicativo acessa os dados diretamente do **SGS (Sistema Gerenciador de Sé
 data_inicio = st.sidebar.date_input("Data inicial", value=datetime.date(2021, 1, 1))
 data_fim = st.sidebar.date_input("Data final", value=datetime.date.today())
 
+# Verificação de datas válidas
+if data_inicio > data_fim:
+    st.sidebar.error("Erro: Data inicial maior que data final!")
+
 # Códigos das séries
 codigo_incc = 7456  # INCC-M mensal
 codigo_ipca = 433   # IPCA mensal
 
 # Obtém dados
-with st.spinner("🔄 Carregando série INCC-M..."):
-    df_incc = obter_serie_sgs(codigo_incc, data_inicio)
+df_incc = obter_serie_sgs(codigo_incc, data_inicio)
+df_ipca = obter_serie_sgs(codigo_ipca, data_inicio)
 
-with st.spinner("🔄 Carregando série IPCA..."):
-    df_ipca = obter_serie_sgs(codigo_ipca, data_inicio)
-
-# Verifica se os dados foram carregados
+# Processamento dos dados
 if not df_incc.empty and not df_ipca.empty:
-    df_incc = df_incc[(df_incc.index.date >= data_inicio) & (df_incc.index.date <= data_fim)]
-    df_ipca = df_ipca[(df_ipca.index.date >= data_inicio) & (df_ipca.index.date <= data_fim)]
-
+    # Converte para UTC para evitar warnings
+    data_inicio = pd.Timestamp(data_inicio).tz_localize(None)
+    data_fim = pd.Timestamp(data_fim).tz_localize(None) + pd.Timedelta(days=1)
+    
+    # Filtra os dados
+    df_incc = df_incc.loc[data_inicio:data_fim]
+    df_ipca = df_ipca.loc[data_inicio:data_fim]
+    
+    # Combina as séries
     df = pd.concat([
         df_incc.rename(columns={codigo_incc: "INCC-M (%)"}),
         df_ipca.rename(columns={codigo_ipca: "IPCA (%)"})
