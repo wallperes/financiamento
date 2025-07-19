@@ -2,17 +2,27 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 import io
-import locale
-
-# Configurar locale para formato brasileiro
-try:
-    locale.setlocale(locale.LC_ALL, 'pt_BR.UTF-8')
-except:
-    locale.setlocale(locale.LC_ALL, 'Portuguese_Brazil.1252')
 
 def format_currency(value):
     """Formata valores no padrão brasileiro R$ 1.234,56"""
-    return locale.currency(value, grouping=True, symbol=False)
+    if pd.isna(value) or value == 0:
+        return "0,00"
+    
+    # Formatação para valores absolutos
+    abs_value = abs(value)
+    formatted = f"{abs_value:,.2f}"
+    
+    # Substitui decimais e milhares
+    parts = formatted.split('.')
+    integer_part = parts[0].replace(',', '.')
+    decimal_part = parts[1] if len(parts) > 1 else "00"
+    
+    # Garante 2 dígitos decimais
+    decimal_part = decimal_part.ljust(2, '0')[:2]
+    
+    # Formata sinal negativo
+    sign = "-" if value < 0 else ""
+    return f"{sign}{integer_part},{decimal_part}"
 
 def simular_financiamento(
     valor_total_imovel,
@@ -136,7 +146,8 @@ def simular_financiamento(
             valor_quitado = total_amortizado_pre + (0 if entrada_parcelada else valor_entrada)
             percentual_quitado = valor_quitado / valor_total_imovel
             if percentual_quitado < percentual_minimo_quitacao:
-                st.warning(f"Atenção: valor quitado na pré ({format_currency(valor_quitado)}) equivale a {percentual_quitado*100:.2f}% do valor do imóvel, abaixo de {percentual_minimo_quitacao*100:.0f}%.")
+                formatted_valor = format_currency(valor_quitado)
+                st.warning(f"Atenção: valor quitado na pré ({formatted_valor}) equivale a {percentual_quitado*100:.2f}% do valor do imóvel, abaixo de {percentual_minimo_quitacao*100:.0f}%.")
 
     return pd.DataFrame(historico)
 
@@ -170,14 +181,16 @@ parcelas_semestrais = {}
 for i in range(2):  # Exemplo: 2 semestrais
     mes = st.sidebar.number_input(f"Mês semestral {i+1}", value=6 * (i+1), key=f"sem_{i}")
     valor = st.sidebar.number_input(f"Valor semestral {i+1} (R$)", value=6000.0, key=f"sem_val_{i}")
-    parcelas_semestrais[mes] = valor
+    if mes > 0 and valor > 0:
+        parcelas_semestrais[int(mes)] = valor
 
 st.sidebar.subheader("Parcelas Anuais")
 parcelas_anuais = {}
 for i in range(1):  # Exemplo: 1 anual
     mes = st.sidebar.number_input(f"Mês anual {i+1}", value=17, key=f"anu_{i}")
     valor = st.sidebar.number_input(f"Valor anual {i+1} (R$)", value=43300.0, key=f"anu_val_{i}")
-    parcelas_anuais[mes] = valor
+    if mes > 0 and valor > 0:
+        parcelas_anuais[int(mes)] = valor
 
 if st.button("Simular"):
     df_resultado = simular_financiamento(
@@ -209,7 +222,7 @@ if st.button("Simular"):
     
     # Formatar valores para padrão brasileiro
     for col in col_order[2:]:  # Todas as colunas numéricas
-        df_display[col] = df_display[col].apply(format_currency)
+        df_display[col] = df_display[col].apply(lambda x: format_currency(x))
     
     st.dataframe(df_display)
 
@@ -217,9 +230,7 @@ if st.button("Simular"):
 
     fig, ax = plt.subplots(1, 2, figsize=(16, 6))
 
-    # Converter valores para numérico para os gráficos
-    df_resultado['Saldo Devedor'] = pd.to_numeric(df_resultado['Saldo Devedor'])
-    
+    # Gráfico de saldo devedor
     ax[0].plot(df_resultado['Mês'], df_resultado['Saldo Devedor'], label='Saldo Devedor', color='blue')
     ax[0].set_title("Evolução do Saldo Devedor")
     ax[0].set_xlabel("Mês")
@@ -228,17 +239,21 @@ if st.button("Simular"):
     ax[0].legend()
 
     # Gráfico com composição da parcela
-    # Converter colunas para numérico
+    # Converter colunas para numérico (garantia)
     df_resultado['Amortização Base'] = pd.to_numeric(df_resultado['Amortização Base'])
     df_resultado['Correção INCC ou IPCA diluída (R$)'] = pd.to_numeric(df_resultado['Correção INCC ou IPCA diluída (R$)'])
     df_resultado['Juros (R$)'] = pd.to_numeric(df_resultado['Juros (R$)'])
     
+    # Calcular bases para gráfico de barras
+    base_amort = df_resultado['Amortização Base']
+    base_correcao = base_amort + df_resultado['Correção INCC ou IPCA diluída (R$)']
+    
     ax[1].bar(df_resultado['Mês'], df_resultado['Amortização Base'], label='Amortização Base', color='green')
     ax[1].bar(df_resultado['Mês'], df_resultado['Correção INCC ou IPCA diluída (R$)'], 
-             bottom=df_resultado['Amortização Base'], 
+             bottom=base_amort, 
              label='Correção Diluída', color='orange')
     ax[1].bar(df_resultado['Mês'], df_resultado['Juros (R$)'], 
-             bottom=df_resultado['Amortização Base'] + df_resultado['Correção INCC ou IPCA diluída (R$)'], 
+             bottom=base_correcao, 
              label='Juros', color='red')
     ax[1].set_title("Composição da Parcela Total")
     ax[1].set_xlabel("Mês")
