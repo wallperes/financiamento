@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 import io
-import numpy as np
 
 def simular_financiamento(
     valor_total_imovel,
@@ -67,12 +66,14 @@ def simular_financiamento(
         parcelas_vencidas = [p for p in parcelas_futuras if p['mes'] == mes and p['tipo'] == 'pre']
         pagamento_total = 0
         amortizacao_total = 0
+        correcao_paga_total = 0
         
         for parcela in parcelas_vencidas:
             # Calcular valor total a pagar (original + correção acumulada)
             pagamento_parcela = parcela['valor_original'] + parcela['correcao_acumulada']
             pagamento_total += pagamento_parcela
             amortizacao_total += parcela['valor_original']
+            correcao_paga_total += parcela['correcao_acumulada']
             
             # Remover parcela da lista de futuras
             parcelas_futuras.remove(parcela)
@@ -84,17 +85,18 @@ def simular_financiamento(
 
         # Registrar no histórico
         historico.append({
-            'Fase': 'Pré',
             'Mês': mes,
+            'Fase': 'Pré',
             'Saldo Devedor': saldo_devedor,
-            'Parcela': pagamento_total,
-            'Amortização': amortizacao_total,
-            'Juros': 0,
+            'Parcela Total': pagamento_total,
+            'Amortização Base': amortizacao_total,
+            'Correção Paga (R$)': correcao_paga_total,
+            'Juros (R$)': 0,
             'Ajuste INCC (R$)': correcao_mes,
             'Ajuste IPCA (R$)': 0
         })
 
-    # 3. Verificação de quitação mínima (mesmo do original)
+    # 3. Verificação de quitação mínima
     valor_quitado = total_amortizado_pre + (0 if entrada_parcelada else valor_entrada)
     percentual_quitado = valor_quitado / valor_total_imovel
     if percentual_quitado < percentual_minimo_quitacao:
@@ -130,6 +132,7 @@ def simular_financiamento(
         pagamento_total = 0
         amortizacao_total = 0
         juros_total = 0
+        correcao_paga_total = 0
         
         for parcela in parcelas_vencidas:
             # Calcular juros sobre saldo atualizado
@@ -140,6 +143,7 @@ def simular_financiamento(
             pagamento_total += pagamento_parcela
             amortizacao_total += parcela['valor_original']
             juros_total += juros_parcela
+            correcao_paga_total += parcela['correcao_acumulada']
             
             # Remover parcela da lista de futuras
             parcelas_futuras.remove(parcela)
@@ -150,12 +154,13 @@ def simular_financiamento(
 
         # Registrar no histórico
         historico.append({
-            'Fase': 'Pós',
             'Mês': mes_global,
+            'Fase': 'Pós',
             'Saldo Devedor': saldo_devedor,
-            'Parcela': pagamento_total,
-            'Amortização': amortizacao_total,
-            'Juros': juros_total,
+            'Parcela Total': pagamento_total,
+            'Amortização Base': amortizacao_total,
+            'Correção Paga (R$)': correcao_paga_total,
+            'Juros (R$)': juros_total,
             'Ajuste INCC (R$)': 0,
             'Ajuste IPCA (R$)': correcao_mes
         })
@@ -163,7 +168,7 @@ def simular_financiamento(
     return pd.DataFrame(historico)
 
 # ------------------------------
-# Interface Streamlit (mantida igual)
+# Interface Streamlit
 # ------------------------------
 
 st.title("Simulador de Financiamento Imobiliário 🚧🏠")
@@ -218,8 +223,31 @@ if st.button("Simular"):
         valor_amortizacao_pos
     )
 
-    st.subheader("Tabela de Simulação (todos os meses)")
-    st.dataframe(df_resultado)
+    st.subheader("Tabela de Simulação Detalhada")
+    
+    # Reordenar colunas para melhor visualização
+    col_order = [
+        'Mês', 'Fase', 'Saldo Devedor', 
+        'Parcela Total', 'Amortização Base', 'Correção Paga (R$)', 'Juros (R$)', 
+        'Ajuste INCC (R$)', 'Ajuste IPCA (R$)'
+    ]
+    df_display = df_resultado[col_order]
+    
+    # Formatar valores para melhor visualização
+    format_mapping = {
+        'Saldo Devedor': '{:,.2f}',
+        'Parcela Total': '{:,.2f}',
+        'Amortização Base': '{:,.2f}',
+        'Correção Paga (R$)': '{:,.2f}',
+        'Juros (R$)': '{:,.2f}',
+        'Ajuste INCC (R$)': '{:,.2f}',
+        'Ajuste IPCA (R$)': '{:,.2f}'
+    }
+    
+    for col, fmt in format_mapping.items():
+        df_display[col] = df_display[col].apply(lambda x: fmt.format(x))
+    
+    st.dataframe(df_display)
 
     st.subheader("Gráficos")
 
@@ -232,16 +260,27 @@ if st.button("Simular"):
     ax[0].grid(True)
     ax[0].legend()
 
-    ax[1].plot(df_resultado['Mês'], df_resultado['Parcela'], label='Parcela Total', color='black')
-    ax[1].plot(df_resultado['Mês'], df_resultado['Amortização'], label='Amortização', color='green')
-    ax[1].plot(df_resultado['Mês'], df_resultado['Juros'], label='Juros', color='red')
-    ax[1].set_title("Evolução da Parcela")
+    # Gráfico com composição da parcela
+    ax[1].bar(df_resultado['Mês'], df_resultado['Amortização Base'], label='Amortização Base', color='green')
+    ax[1].bar(df_resultado['Mês'], df_resultado['Correção Paga (R$)'], bottom=df_resultado['Amortização Base'], 
+             label='Correção Paga', color='orange')
+    ax[1].bar(df_resultado['Mês'], df_resultado['Juros (R$)'], 
+             bottom=df_resultado['Amortização Base'] + df_resultado['Correção Paga (R$)'], 
+             label='Juros', color='red')
+    ax[1].set_title("Composição da Parcela Total")
     ax[1].set_xlabel("Mês")
     ax[1].set_ylabel("R$")
     ax[1].grid(True)
     ax[1].legend()
 
     st.pyplot(fig)
+
+    st.subheader("Resumo da Composição da Parcela")
+    st.write("""
+    - **Amortização Base**: Valor original da parcela sem correção
+    - **Correção Paga**: Valor da correção (INCC/IPCA) diluída que está sendo paga no mês
+    - **Juros**: Juros remuneratórios aplicados (apenas na fase pós)
+    """)
 
     # Exportar para Excel
     output = io.BytesIO()
