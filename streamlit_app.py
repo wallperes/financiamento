@@ -176,7 +176,7 @@ def simular_financiamento(
 
     return pd.DataFrame(historico)
 
-# FUNÇÃO AJUSTADA: Buscar índices econômicos apenas via Google Sheets
+# FUNÇÃO CORRIGIDA: Buscar índices econômicos do Google Sheets
 def buscar_indices_google_sheets(mes_inicial, meses_total, url_google_sheets):
     """
     Busca índices INCC e IPCA históricos do Google Sheets
@@ -202,15 +202,28 @@ def buscar_indices_google_sheets(mes_inicial, meses_total, url_google_sheets):
         # Ler dados do Google Sheets
         df = pd.read_csv(url_google_sheets)
         
-        # Renomear colunas para facilitar o acesso
-        df.columns = ['Mês', 'IPCA', 'INCC']
+        # Verificar se as colunas esperadas existem
+        if 'Mês' not in df.columns or 'IPCA' not in df.columns or 'INCC' not in df.columns:
+            # Se não tiver os nomes corretos, tentar usar as primeiras colunas
+            if len(df.columns) >= 3:
+                df.columns = ['Mês', 'IPCA', 'INCC'] + list(df.columns[3:])
+            else:
+                st.error("O formato da planilha não é compatível. Certifique-se de que as colunas são: Mês, IPCA, INCC")
+                return {}
+        
+        # Filtrar apenas as colunas necessárias
+        df = df[['Mês', 'IPCA', 'INCC']].copy()
         
         # Converter valores de string para float (considerando vírgula como separador decimal)
-        df['IPCA'] = df['IPCA'].str.replace(',', '.').astype(float)
-        df['INCC'] = df['INCC'].str.replace(',', '.').astype(float)
+        df['IPCA'] = df['IPCA'].astype(str).str.replace(',', '.').astype(float)
+        df['INCC'] = df['INCC'].astype(str).str.replace(',', '.').astype(float)
         
         # Converter coluna 'Mês' para datetime
-        df['Data'] = pd.to_datetime(df['Mês'], format='%Y-%m')
+        df['Data'] = pd.to_datetime(df['Mês'], format='%Y-%m', errors='coerce')
+        
+        # Se não conseguir converter, tentar outro formato
+        if df['Data'].isnull().any():
+            df['Data'] = pd.to_datetime(df['Mês'], format='%m/%Y', errors='coerce')
         
         # Criar coluna com formato MM/AAAA
         df['MesFormatado'] = df['Data'].dt.strftime('%m/%Y')
@@ -219,8 +232,6 @@ def buscar_indices_google_sheets(mes_inicial, meses_total, url_google_sheets):
         current_date = data_inicio
         for mes in range(1, meses_total + 1):
             month_str = current_date.strftime("%m/%Y")
-            
-            # Buscar dados na planilha
             match = df[df['MesFormatado'] == month_str]
             
             if not match.empty:
@@ -287,7 +298,7 @@ for i in range(1):  # Exemplo: 1 anual
     if mes > 0 and valor > 0:
         parcelas_anuais[int(mes)] = valor
 
-# Seção: Fonte dos índices (apenas Google Sheets)
+# Seção: Fonte dos índices (Google Sheets)
 st.sidebar.subheader("Fonte dos Índices")
 url_google_sheets = st.sidebar.text_input(
     "URL pública do Google Sheets",
