@@ -3,7 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import io
 from datetime import datetime, timedelta
-import SGS
+import sgs
 
 def format_currency(value):
     """Formata valores no padrão brasileiro R$ 1.234,56"""
