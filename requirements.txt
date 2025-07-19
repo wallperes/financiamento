@@ -1,6 +1,4 @@
 streamlit
 pandas
 matplotlib
-xlsxwriter
-regex
 pysgs
