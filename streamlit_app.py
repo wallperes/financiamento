@@ -38,7 +38,9 @@ def simular_financiamento(
     parcelas_semestrais,
     parcelas_anuais,
     valor_amortizacao_pos,
-    percentual_minimo_quitacao=0.3
+    percentual_minimo_quitacao=0.3,
+    limite_correcao=None,
+    valores_reais=None
 ):
     # Inicialização do saldo devedor
     saldo_devedor = valor_total_imovel - valor_entrada if not entrada_parcelada else valor_total_imovel
@@ -85,13 +87,27 @@ def simular_financiamento(
     for mes_atual in range(1, meses_pre + meses_pos + 1):
         fase = 'Pré' if mes_atual <= meses_pre else 'Pós'
         
-        # Calcular correção do período ANTES de qualquer pagamento
+        # Calcular correção do período
         saldo_inicial_mes = saldo_devedor
-        if fase == 'Pré':
-            correcao_mes = saldo_devedor * incc_medio
-        else:
-            correcao_mes = saldo_devedor * ipca_medio
+        correcao_mes = 0
         
+        # Lógica de correção modificada
+        if valores_reais and mes_atual in valores_reais:
+            # Usar valores reais se fornecidos
+            if fase == 'Pré':
+                correcao_mes = saldo_devedor * valores_reais[mes_atual]['incc']
+            else:
+                correcao_mes = saldo_devedor * valores_reais[mes_atual]['ipca']
+        elif limite_correcao and mes_atual > limite_correcao:
+            # Sem correção após o limite
+            correcao_mes = 0
+        else:
+            # Usar médias padrão
+            if fase == 'Pré':
+                correcao_mes = saldo_devedor * incc_medio
+            else:
+                correcao_mes = saldo_devedor * ipca_medio
+
         # ATUALIZAÇÃO: Correção compõe o saldo devedor
         saldo_devedor += correcao_mes
 
@@ -100,7 +116,7 @@ def simular_financiamento(
         if fase == 'Pós':
             juros_total = saldo_inicial_mes * juros_mensal
 
-        # DISTRIBUIR correção entre todas as parcelas futuras (incluindo as do mês atual)
+        # DISTRIBUIR correção entre todas as parcelas futuras
         if parcelas_futuras:
             total_valor_original = sum(p['valor_original'] for p in parcelas_futuras)
             for parcela in parcelas_futuras:
@@ -177,9 +193,9 @@ if entrada_parcelada:
 
 meses_pre = st.sidebar.number_input("Meses de pré-chaves", value=17)
 meses_pos = st.sidebar.number_input("Meses de pós-chaves", value=100)
-incc_medio = st.sidebar.number_input("INCC médio mensal", value=0.00544640781, step=0.00000001, format="%.8f")
-ipca_medio = st.sidebar.number_input("IPCA médio mensal", value=0.00466933642, step=0.00000001, format="%.8f")
-juros_mensal = st.sidebar.number_input("Juros remuneratórios mensal", value=0.01, step=0.00000001, format="%.8f")
+incc_medio = st.sidebar.number_input("INCC médio mensal", value=0.00544640781, step=0.0001, format="%.4f")
+ipca_medio = st.sidebar.number_input("IPCA médio mensal", value=0.00466933642, step=0.0001, format="%.4f")
+juros_mensal = st.sidebar.number_input("Juros remuneratórios mensal", value=0.01, step=0.001, format="%.3f")
 
 parcelas_mensais_pre = st.sidebar.number_input("Parcela mensal pré (R$)", value=3983.38)
 valor_amortizacao_pos = st.sidebar.number_input("Amortização mensal pós (R$)", value=3104.62)
@@ -200,23 +216,103 @@ for i in range(1):  # Exemplo: 1 anual
     if mes > 0 and valor > 0:
         parcelas_anuais[int(mes)] = valor
 
-if st.button("Simular"):
-    df_resultado = simular_financiamento(
-        valor_total_imovel,
-        valor_entrada,
-        entrada_parcelada,
-        entrada_mensal,
-        meses_pre,
-        meses_pos,
-        incc_medio,
-        ipca_medio,
-        juros_mensal,
-        parcelas_mensais_pre,
-        parcelas_semestrais,
-        parcelas_anuais,
-        valor_amortizacao_pos
-    )
+# Tabela para valores reais de índices
+st.subheader("Valores Reais de Índices (opcional)")
+st.write("Preencha os valores reais de INCC e IPCA para meses específicos (em decimal):")
 
+total_meses = meses_pre + meses_pos
+df_indices = pd.DataFrame(
+    index=range(1, total_meses + 1),
+    columns=['INCC', 'IPCA']
+)
+df_indices.index.name = 'Mês'
+df_indices = df_indices.fillna(0.0)
+
+edited_df = st.data_editor(
+    df_indices, 
+    use_container_width=True,
+    height=min(300, 35 * total_meses + 40)
+)
+
+# Botões de simulação
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    if st.button("Simular com Parâmetros Médios"):
+        df_resultado = simular_financiamento(
+            valor_total_imovel,
+            valor_entrada,
+            entrada_parcelada,
+            entrada_mensal,
+            meses_pre,
+            meses_pos,
+            incc_medio,
+            ipca_medio,
+            juros_mensal,
+            parcelas_mensais_pre,
+            parcelas_semestrais,
+            parcelas_anuais,
+            valor_amortizacao_pos
+        )
+        st.session_state.df_resultado = df_resultado
+
+with col2:
+    limite_correcao = st.number_input("Aplicar correção até o mês:", 
+                                     min_value=1, 
+                                     max_value=total_meses, 
+                                     value=meses_pre,
+                                     key='limite_input')
+    if st.button("Simular Parcial"):
+        df_resultado = simular_financiamento(
+            valor_total_imovel,
+            valor_entrada,
+            entrada_parcelada,
+            entrada_mensal,
+            meses_pre,
+            meses_pos,
+            incc_medio,
+            ipca_medio,
+            juros_mensal,
+            parcelas_mensais_pre,
+            parcelas_semestrais,
+            parcelas_anuais,
+            valor_amortizacao_pos,
+            limite_correcao=limite_correcao
+        )
+        st.session_state.df_resultado = df_resultado
+
+with col3:
+    if st.button("Simular com Valores Reais"):
+        # Converter DataFrame para dicionário de valores reais
+        valores_reais = {}
+        for mes, row in edited_df.iterrows():
+            incc_val = row['INCC']
+            ipca_val = row['IPCA']
+            if incc_val != 0 or ipca_val != 0:
+                valores_reais[mes] = {'incc': incc_val, 'ipca': ipca_val}
+
+        df_resultado = simular_financiamento(
+            valor_total_imovel,
+            valor_entrada,
+            entrada_parcelada,
+            entrada_mensal,
+            meses_pre,
+            meses_pos,
+            incc_medio,
+            ipca_medio,
+            juros_mensal,
+            parcelas_mensais_pre,
+            parcelas_semestrais,
+            parcelas_anuais,
+            valor_amortizacao_pos,
+            valores_reais=valores_reais
+        )
+        st.session_state.df_resultado = df_resultado
+
+# Exibição dos resultados
+if 'df_resultado' in st.session_state:
+    df_resultado = st.session_state.df_resultado
+    
     st.subheader("Tabela de Simulação Detalhada")
     
     # Ordem das colunas
@@ -247,12 +343,10 @@ if st.button("Simular"):
     ax[0].legend()
 
     # Gráfico com composição da parcela
-    # Converter colunas para numérico (garantia)
     df_resultado['Amortização Base'] = pd.to_numeric(df_resultado['Amortização Base'])
     df_resultado['Correção INCC ou IPCA diluída (R$)'] = pd.to_numeric(df_resultado['Correção INCC ou IPCA diluída (R$)'])
     df_resultado['Juros (R$)'] = pd.to_numeric(df_resultado['Juros (R$)'])
     
-    # Calcular bases para gráfico de barras
     base_amort = df_resultado['Amortização Base']
     base_correcao = base_amort + df_resultado['Correção INCC ou IPCA diluída (R$)']
     
