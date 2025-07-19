@@ -3,7 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import io
 from datetime import datetime, timedelta
-from pysgs import SGS
+import sgs
 
 # ============================================
 # FUNÇÕES UTILITÁRIAS
