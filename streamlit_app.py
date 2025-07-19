@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 import io
+import numpy as np
 
 def simular_financiamento(
     valor_total_imovel,
@@ -19,84 +20,150 @@ def simular_financiamento(
     valor_amortizacao_pos,
     percentual_minimo_quitacao=0.3
 ):
+    # Inicialização do saldo devedor
     saldo_devedor = valor_total_imovel - valor_entrada if not entrada_parcelada else valor_total_imovel
-
+    
+    # Lista para armazenar todas as parcelas futuras
+    parcelas_futuras = []
     historico = []
     total_amortizado_pre = 0
 
-    # Fase pré-chaves
-    for m in range(1, meses_pre + 1):
-        incc_valor = saldo_devedor * incc_medio
-        saldo_devedor += incc_valor
+    # 1. Construir lista de parcelas futuras para fase pré-chaves
+    for mes in range(1, meses_pre + 1):
+        valor_parcela = parcelas_mensais_pre
+        
+        # Adicionar parcelas especiais se existirem neste mês
+        if mes in parcelas_semestrais:
+            valor_parcela += parcelas_semestrais[mes]
+        if mes in parcelas_anuais:
+            valor_parcela += parcelas_anuais[mes]
+        
+        # Adicionar parcela de entrada se aplicável
+        if entrada_parcelada and mes <= (valor_entrada / entrada_mensal):
+            valor_parcela += entrada_mensal
+        
+        if valor_parcela > 0:
+            parcelas_futuras.append({
+                'mes': mes,
+                'valor_original': valor_parcela,
+                'correcao_acumulada': 0.0,
+                'tipo': 'pre'
+            })
 
-        amortizacao_mes = parcelas_mensais_pre
+    # 2. Fase pré-chaves
+    for mes in range(1, meses_pre + 1):
+        # Calcular correção do período
+        correcao_mes = saldo_devedor * incc_medio
+        saldo_devedor += correcao_mes
 
-        # Entrada parcelada
-        entrada_paga = 0
-        if entrada_parcelada and m <= (valor_entrada // entrada_mensal if entrada_mensal > 0 else 0):
-            amortizacao_mes += entrada_mensal
-            entrada_paga = entrada_mensal
+        # Distribuir correção entre parcelas futuras
+        if parcelas_futuras:
+            total_valor_original = sum(p['valor_original'] for p in parcelas_futuras)
+            for parcela in parcelas_futuras:
+                proporcao = parcela['valor_original'] / total_valor_original
+                parcela['correcao_acumulada'] += correcao_mes * proporcao
 
-        if m in parcelas_semestrais:
-            amortizacao_mes += parcelas_semestrais[m]
-
-        if m in parcelas_anuais:
-            amortizacao_mes += parcelas_anuais[m]
-
-        saldo_devedor -= amortizacao_mes
+        # Encontrar parcelas vencendo neste mês
+        parcelas_vencidas = [p for p in parcelas_futuras if p['mes'] == mes and p['tipo'] == 'pre']
+        pagamento_total = 0
+        amortizacao_total = 0
+        
+        for parcela in parcelas_vencidas:
+            # Calcular valor total a pagar (original + correção acumulada)
+            pagamento_parcela = parcela['valor_original'] + parcela['correcao_acumulada']
+            pagamento_total += pagamento_parcela
+            amortizacao_total += parcela['valor_original']
+            
+            # Remover parcela da lista de futuras
+            parcelas_futuras.remove(parcela)
+        
+        # Atualizar saldo devedor
+        saldo_devedor -= amortizacao_total
         saldo_devedor = max(saldo_devedor, 0)
+        total_amortizado_pre += amortizacao_total
 
-        total_amortizado_pre += amortizacao_mes
-
+        # Registrar no histórico
         historico.append({
             'Fase': 'Pré',
-            'Mês': m,
+            'Mês': mes,
             'Saldo Devedor': saldo_devedor,
-            'Parcela': amortizacao_mes,
-            'Amortização': amortizacao_mes,
+            'Parcela': pagamento_total,
+            'Amortização': amortizacao_total,
             'Juros': 0,
-            'Ajuste INCC (R$)': incc_valor,
+            'Ajuste INCC (R$)': correcao_mes,
             'Ajuste IPCA (R$)': 0
         })
 
-    # Valor quitado considerando entrada à vista
-    valor_quitado = total_amortizado_pre
-    if not entrada_parcelada:
-        valor_quitado += valor_entrada
-
+    # 3. Verificação de quitação mínima (mesmo do original)
+    valor_quitado = total_amortizado_pre + (0 if entrada_parcelada else valor_entrada)
     percentual_quitado = valor_quitado / valor_total_imovel
-
     if percentual_quitado < percentual_minimo_quitacao:
         st.warning(f"Atenção: valor quitado na pré ({valor_quitado:,.2f}) equivale a {percentual_quitado*100:.2f}% do valor do imóvel, abaixo de {percentual_minimo_quitacao*100:.0f}%.")
 
-    # Fase pós-chaves
-    for m in range(1, meses_pos + 1):
-        ipca_valor = saldo_devedor * ipca_medio
-        saldo_devedor += ipca_valor
-
-        juros = saldo_devedor * juros_mensal
-        amortizacao = valor_amortizacao_pos
-        parcela_final = amortizacao + juros
-
-        saldo_devedor -= amortizacao
-        saldo_devedor = max(saldo_devedor, 0)
-
-        historico.append({
-            'Fase': 'Pós',
-            'Mês': meses_pre + m,
-            'Saldo Devedor': saldo_devedor,
-            'Parcela': parcela_final,
-            'Amortização': amortizacao,
-            'Juros': juros,
-            'Ajuste INCC (R$)': 0,
-            'Ajuste IPCA (R$)': ipca_valor
+    # 4. Construir parcelas futuras para fase pós-chaves
+    for mes in range(1, meses_pos + 1):
+        mes_global = meses_pre + mes
+        parcelas_futuras.append({
+            'mes': mes_global,
+            'valor_original': valor_amortizacao_pos,
+            'correcao_acumulada': 0.0,
+            'tipo': 'pos'
         })
 
-    df = pd.DataFrame(historico)
-    return df
+    # 5. Fase pós-chaves
+    for mes in range(1, meses_pos + 1):
+        mes_global = meses_pre + mes
+        
+        # Calcular correção do período
+        correcao_mes = saldo_devedor * ipca_medio
+        saldo_devedor += correcao_mes
+
+        # Distribuir correção entre parcelas futuras
+        if parcelas_futuras:
+            total_valor_original = sum(p['valor_original'] for p in parcelas_futuras)
+            for parcela in parcelas_futuras:
+                proporcao = parcela['valor_original'] / total_valor_original
+                parcela['correcao_acumulada'] += correcao_mes * proporcao
+
+        # Encontrar parcelas vencendo neste mês
+        parcelas_vencidas = [p for p in parcelas_futuras if p['mes'] == mes_global and p['tipo'] == 'pos']
+        pagamento_total = 0
+        amortizacao_total = 0
+        juros_total = 0
+        
+        for parcela in parcelas_vencidas:
+            # Calcular juros sobre saldo atualizado
+            juros_parcela = saldo_devedor * juros_mensal
+            
+            # Calcular valor total a pagar (amortização + juros + correção)
+            pagamento_parcela = parcela['valor_original'] + juros_parcela + parcela['correcao_acumulada']
+            pagamento_total += pagamento_parcela
+            amortizacao_total += parcela['valor_original']
+            juros_total += juros_parcela
+            
+            # Remover parcela da lista de futuras
+            parcelas_futuras.remove(parcela)
+        
+        # Atualizar saldo devedor
+        saldo_devedor -= amortizacao_total
+        saldo_devedor = max(saldo_devedor, 0)
+
+        # Registrar no histórico
+        historico.append({
+            'Fase': 'Pós',
+            'Mês': mes_global,
+            'Saldo Devedor': saldo_devedor,
+            'Parcela': pagamento_total,
+            'Amortização': amortizacao_total,
+            'Juros': juros_total,
+            'Ajuste INCC (R$)': 0,
+            'Ajuste IPCA (R$)': correcao_mes
+        })
+
+    return pd.DataFrame(historico)
 
 # ------------------------------
-# Interface Streamlit
+# Interface Streamlit (mantida igual)
 # ------------------------------
 
 st.title("Simulador de Financiamento Imobiliário 🚧🏠")
