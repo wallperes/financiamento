@@ -67,6 +67,7 @@ def simular_financiamento(
             parcelas_futuras.append({
                 'mes': mes,
                 'valor_original': valor_parcela,
+                'correcao_acumulada': 0.0,  # Inicializa a correção acumulada
                 'tipo': 'pre'
             })
 
@@ -76,6 +77,7 @@ def simular_financiamento(
         parcelas_futuras.append({
             'mes': mes_global,
             'valor_original': valor_amortizacao_pos,
+            'correcao_acumulada': 0.0,  # Inicializa a correção acumulada
             'tipo': 'pos'
         })
 
@@ -90,7 +92,7 @@ def simular_financiamento(
         else:
             correcao_mes = saldo_devedor * ipca_medio
         
-        # ATUALIZAÇÃO IMPORTANTE: Correção compõe o saldo devedor
+        # ATUALIZAÇÃO: Correção compõe o saldo devedor
         saldo_devedor += correcao_mes
 
         # Calcular juros remuneratórios (apenas sobre saldo inicial)
@@ -98,40 +100,49 @@ def simular_financiamento(
         if fase == 'Pós':
             juros_total = saldo_inicial_mes * juros_mensal
 
+        # DISTRIBUIR correção entre todas as parcelas futuras (incluindo as do mês atual)
+        if parcelas_futuras:
+            total_valor_original = sum(p['valor_original'] for p in parcelas_futuras)
+            for parcela in parcelas_futuras:
+                proporcao = parcela['valor_original'] / total_valor_original
+                parcela['correcao_acumulada'] += correcao_mes * proporcao
+
         # Verificar parcelas vencidas
         parcelas_vencidas = [p for p in parcelas_futuras if p['mes'] == mes_atual]
         pagamento_total = 0
         amortizacao_total = 0
+        correcao_paga_total = 0
         
         for parcela in parcelas_vencidas:
-            # O pagamento da parcela desconta APENAS o valor original (amortização)
-            pagamento_parcela = parcela['valor_original']
+            # O pagamento da parcela inclui valor original + correção acumulada
+            pagamento_parcela = parcela['valor_original'] + parcela['correcao_acumulada']
             pagamento_total += pagamento_parcela
             amortizacao_total += parcela['valor_original']
+            correcao_paga_total += parcela['correcao_acumulada']
             
             # Remover parcela da lista de futuras
             parcelas_futuras.remove(parcela)
         
-        # ATUALIZAÇÃO IMPORTANTE: Descontar apenas a amortização do saldo devedor
-        saldo_devedor -= amortizacao_total
+        # ATUALIZAÇÃO: Descontar amortização + correção paga do saldo devedor
+        saldo_devedor -= (amortizacao_total + correcao_paga_total)
         saldo_devedor = max(saldo_devedor, 0)
         
-        # ATUALIZAÇÃO: Juros não compõem saldo devedor, são pagos separadamente
+        # Juros são pagos separadamente e não reduzem o saldo devedor
         pagamento_total += juros_total
         
         # Atualizar totais amortizados na fase pré
         if fase == 'Pré':
             total_amortizado_pre += amortizacao_total
-            total_correcao_paga_pre += 0  # Correção não é paga diretamente, mas incorporada
+            total_correcao_paga_pre += correcao_paga_total
 
         # Registrar no histórico
         historico.append({
             'Mês': mes_atual,
             'Fase': fase,
             'Saldo Devedor': saldo_devedor,
-            'Parcela Total': pagamento_total + juros_total,
+            'Parcela Total': pagamento_total,
             'Amortização Base': amortizacao_total,
-            'Correção INCC ou IPCA incorporada (R$)': correcao_mes,
+            'Correção INCC ou IPCA diluída (R$)': correcao_paga_total,
             'Juros (R$)': juros_total,
             'Ajuste INCC (R$)': correcao_mes if fase == 'Pré' else 0,
             'Ajuste IPCA (R$)': correcao_mes if fase == 'Pós' else 0
@@ -208,7 +219,7 @@ if st.button("Simular"):
 
     st.subheader("Tabela de Simulação Detalhada")
     
-    # Nova ordem das colunas
+    # Ordem das colunas
     col_order = [
         'Mês', 'Fase', 'Saldo Devedor', 'Ajuste INCC (R$)', 'Ajuste IPCA (R$)',
         'Correção INCC ou IPCA diluída (R$)', 'Amortização Base','Juros (R$)',  'Parcela Total'
