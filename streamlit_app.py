@@ -401,7 +401,7 @@ def mostrar_resultados(df_resultado):
     st.session_state.df_export = df_resultado[colunas].copy()
 
 def main():
-    st.title("Simulador de Financiamento Imobiliário 🚧🏠")
+    st.title("Simulador/Estimativa de Financiamento Imobiliário 🚧🏠")
     
     # Inicializar variáveis de sessão
     if 'df_indices' not in st.session_state:
