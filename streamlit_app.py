@@ -8,9 +8,14 @@ from sgs import SGS
 def obter_serie_sgs(codigo_serie: int, data_inicio: datetime.date) -> pd.DataFrame:
     try:
         sgs = SGS()
-        dados = sgs.data(codigo_serie, start=data_inicio)
+        # CORREÇÃO: usar fetch() em vez de data()
+        serie = sgs.fetch(codigo_serie, start=data_inicio)
+        # Converter para DataFrame e processar
+        dados = pd.DataFrame(serie)
+        dados.columns = [codigo_serie]
         dados.index = pd.to_datetime(dados.index)
-        return dados.fillna(0.0)
+        dados = dados.fillna(0.0)
+        return dados
     except Exception as e:
         st.error(f"Erro ao buscar a série {codigo_serie}: {e}")
         return pd.DataFrame()
@@ -44,13 +49,13 @@ df_ipca = obter_serie_sgs(codigo_ipca, data_inicio)
 
 # Processamento dos dados
 if not df_incc.empty and not df_ipca.empty:
-    # Converte para UTC para evitar warnings
-    data_inicio = pd.Timestamp(data_inicio).tz_localize(None)
-    data_fim = pd.Timestamp(data_fim).tz_localize(None) + pd.Timedelta(days=1)
+    # Converter datas para Timestamp sem timezone
+    start = pd.Timestamp(data_inicio)
+    end = pd.Timestamp(data_fim) + pd.Timedelta(days=1)
     
     # Filtra os dados
-    df_incc = df_incc.loc[data_inicio:data_fim]
-    df_ipca = df_ipca.loc[data_inicio:data_fim]
+    df_incc = df_incc.loc[start:end]
+    df_ipca = df_ipca.loc[start:end]
     
     # Combina as séries
     df = pd.concat([
@@ -67,5 +72,14 @@ if not df_incc.empty and not df_ipca.empty:
     # Gráfico
     st.subheader("📈 Evolução temporal")
     st.line_chart(df)
+    
+    # Adiciona download de dados
+    csv = df.to_csv().encode('utf-8')
+    st.download_button(
+        label="📥 Download dos dados (CSV)",
+        data=csv,
+        file_name="indices_economicos.csv",
+        mime="text/csv"
+    )
 else:
     st.warning("⚠️ Não foi possível obter os dados de uma ou ambas as séries.")
