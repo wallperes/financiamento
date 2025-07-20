@@ -1,8 +1,7 @@
-streamlit==1.47.0
-pandas==2.2.2
-matplotlib==3.8.4
-openpyxl==3.1.2
-xlsxwriter==3.2.0
+streamlit
+pandas
+matplotlib
 sgs
-numpy==1.26.4
-lxml
+python-dateutil
+openpyxl
+xlsxwriter
