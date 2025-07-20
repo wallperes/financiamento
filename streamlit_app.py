@@ -131,7 +131,7 @@ def verificar_quitacao_pre(params, total_amortizado):
 
 def simular_financiamento(params, valores_reais=None):
     """
-    Executa la simulação completa com lógica corrigida
+    Executa a simulação completa com lógica corrigida
     """
     num_parcelas_entrada = params['num_parcelas_entrada']
     saldo_devedor = params['valor_total_imovel']
@@ -170,7 +170,7 @@ def simular_financiamento(params, valores_reais=None):
         # CORREÇÃO: Descontar a correção paga do saldo devedor
         saldo_devedor -= (amortizacao + correcao_paga)
         
-        # 2. Calcular la correção sobre o saldo remanescente APÓS o pagamento
+        # 2. Calcular a correção sobre o saldo remanescente APÓS o pagamento
         correcao_mes = calcular_correcao(
             saldo_devedor, 
             mes_atual, 
@@ -179,10 +179,10 @@ def simular_financiamento(params, valores_reais=None):
             valores_reais
         )
         
-        # 3. Aplicar la correção ao saldo devedor
+        # 3. Aplicar a correção ao saldo devedor
         saldo_devedor += correcao_mes
         
-        # 4. Diluir la correção para TODOS os meses futuros
+        # 4. Diluir a correção para TODOS os meses futuros
         if parcelas_futuras and correcao_mes != 0:
             total_original = sum(p['valor_original'] for p in parcelas_futuras)
             if total_original > 0:
@@ -280,7 +280,7 @@ def buscar_indices_bc(mes_inicial, meses_total):
         return {}, 0, pd.DataFrame()
 
 # ============================================
-# INTERFACE STREAMLIT (ATUALIZADA COM TOGGLE)
+# INTERFACE STREAMLIT (ATUALIZADA)
 # ============================================
 
 def criar_parametros():
@@ -402,49 +402,36 @@ def mostrar_resultados(df_resultado):
 
 def main():
     # =====================================
-    # ESTILO PARA DISPOSITIVOS MÓVEIS (ATUALIZADO)
+    # FORÇAR A BARRA LATERAL A FICAR ABERTA
     # =====================================
     st.markdown(
         """
         <style>
-            /* Botão fixo no topo */
-            .sidebar-toggle {
-                position: fixed;
-                top: 10px;
-                left: 10px;
-                z-index: 9999;
-                padding: 12px 16px;
-                font-size: 18px;
-                font-weight: bold;
-                background-color: #2563eb;
-                color: white;
-                border-radius: 8px;
-                border: none;
-                box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            /* Ocultar o botão de hambúrguer */
+            div[data-testid="collapsedControl"] {
+                display: none;
             }
             
-            /* Ajuste da barra lateral */
-            .sidebar .sidebar-content {
-                transition: transform 0.3s ease;
-                transform: translateX(0);
-                z-index: 999;
+            /* Forçar a barra lateral a ficar sempre visível */
+            section[data-testid="stSidebar"] {
+                width: 400px !important;
+                min-width: 400px !important;
             }
             
-            .sidebar-hidden .sidebar .sidebar-content {
-                transform: translateX(-100%);
+            /* Ajustar o conteúdo principal */
+            div[data-testid="stAppViewContainer"] > div:first-child {
+                margin-left: 400px;
             }
             
-            /* Layout responsivo */
+            /* Ajustes para dispositivos móveis */
             @media (max-width: 768px) {
-                .sidebar-toggle {
-                    top: 5px;
-                    left: 5px;
-                    padding: 10px 14px;
-                    font-size: 16px;
+                section[data-testid="stSidebar"] {
+                    width: 300px !important;
+                    min-width: 300px !important;
                 }
                 
-                .main .block-container {
-                    padding-top: 50px;
+                div[data-testid="stAppViewContainer"] > div:first-child {
+                    margin-left: 300px;
                 }
             }
         </style>
@@ -452,57 +439,14 @@ def main():
         unsafe_allow_html=True
     )
     
-    # =====================================
-    # CONTROLE DE VISIBILIDADE DA BARRA LATERAL
-    # =====================================
-    # Inicializa estado da sidebar
-    if 'sidebar_visible' not in st.session_state:
-        st.session_state.sidebar_visible = True
-    
-    # HTML para o botão de toggle
-    toggle_text = "⬅️ FECHAR PARÂMETROS" if st.session_state.sidebar_visible else "➡️ ABRIR PARÂMETROS"
-    toggle_class = "" if st.session_state.sidebar_visible else "sidebar-hidden"
-    
-    st.markdown(
-        f"""
-        <button class="sidebar-toggle" onclick="toggleSidebar()">{toggle_text}</button>
-        <div class="app {toggle_class}">
-        """,
-        unsafe_allow_html=True
-    )
-    
-    # Script JavaScript para controle da sidebar
-    st.markdown(
-        """
-        <script>
-        function toggleSidebar() {
-            const currentState = window.parent.document.querySelector('.app').classList.contains('sidebar-hidden');
-            window.parent.document.querySelector('.app').classList.toggle('sidebar-hidden');
-            const newText = currentState ? "⬅️ FECHAR PARÂMETROS" : "➡️ ABRIR PARÂMETROS";
-            window.parent.document.querySelector('.sidebar-toggle').textContent = newText;
-            
-            // Atualiza o estado no Streamlit
-            const newState = !currentState;
-            Streamlit.setComponentValue(newState);
-        }
-        </script>
-        """,
-        unsafe_allow_html=True
-    )
-    
-    # =====================================
-    # LAYOUT PRINCIPAL
-    # =====================================
-    # Carrega parâmetros na barra lateral
-    with st.sidebar:
-        params = criar_parametros()
-
     st.title("Simulador/Estimativa de Financiamento Imobiliário 🚧🏠")
     
     # Inicializar variáveis de sessão
     if 'df_indices' not in st.session_state:
         st.session_state.df_indices = None
     
+    # Carregar parâmetros
+    params = criar_parametros()
     total_meses = params['num_parcelas_entrada'] + params['meses_pre'] + params['meses_pos']
     
     # Botões de simulação
@@ -553,9 +497,6 @@ def main():
                 file_name='simulacao_financiamento.xlsx',
                 mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
             )
-    
-    # Fechar a div do app
-    st.markdown("</div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
