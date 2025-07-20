@@ -131,7 +131,7 @@ def verificar_quitacao_pre(params, total_amortizado):
 
 def simular_financiamento(params, valores_reais=None):
     """
-    Executa a simulação completa com lógica corrigida
+    Executa la simulação completa com lógica corrigida
     """
     num_parcelas_entrada = params['num_parcelas_entrada']
     saldo_devedor = params['valor_total_imovel']
@@ -170,7 +170,7 @@ def simular_financiamento(params, valores_reais=None):
         # CORREÇÃO: Descontar a correção paga do saldo devedor
         saldo_devedor -= (amortizacao + correcao_paga)
         
-        # 2. Calcular a correção sobre o saldo remanescente APÓS o pagamento
+        # 2. Calcular la correção sobre o saldo remanescente APÓS o pagamento
         correcao_mes = calcular_correcao(
             saldo_devedor, 
             mes_atual, 
@@ -179,10 +179,10 @@ def simular_financiamento(params, valores_reais=None):
             valores_reais
         )
         
-        # 3. Aplicar a correção ao saldo devedor
+        # 3. Aplicar la correção ao saldo devedor
         saldo_devedor += correcao_mes
         
-        # 4. Diluir a correção para TODOS os meses futuros
+        # 4. Diluir la correção para TODOS os meses futuros
         if parcelas_futuras and correcao_mes != 0:
             total_original = sum(p['valor_original'] for p in parcelas_futuras)
             if total_original > 0:
@@ -402,20 +402,49 @@ def mostrar_resultados(df_resultado):
 
 def main():
     # =====================================
-    # ESTILO PARA DISPOSITIVOS MÓVEIS
+    # ESTILO PARA DISPOSITIVOS MÓVEIS (ATUALIZADO)
     # =====================================
     st.markdown(
         """
         <style>
+            /* Botão fixo no topo */
+            .sidebar-toggle {
+                position: fixed;
+                top: 10px;
+                left: 10px;
+                z-index: 9999;
+                padding: 12px 16px;
+                font-size: 18px;
+                font-weight: bold;
+                background-color: #2563eb;
+                color: white;
+                border-radius: 8px;
+                border: none;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            }
+            
+            /* Ajuste da barra lateral */
+            .sidebar .sidebar-content {
+                transition: transform 0.3s ease;
+                transform: translateX(0);
+                z-index: 999;
+            }
+            
+            .sidebar-hidden .sidebar .sidebar-content {
+                transform: translateX(-100%);
+            }
+            
+            /* Layout responsivo */
             @media (max-width: 768px) {
-                div[data-testid="stButton"] button {
-                    width: 100%;
-                    padding: 0.75rem;
-                    font-size: 1.1rem;
-                    background-color: #2563eb;
-                    color: white;
-                    border-radius: 0.5rem;
-                    margin-bottom: 1rem;
+                .sidebar-toggle {
+                    top: 5px;
+                    left: 5px;
+                    padding: 10px 14px;
+                    font-size: 16px;
+                }
+                
+                .main .block-container {
+                    padding-top: 50px;
                 }
             }
         </style>
@@ -430,18 +459,42 @@ def main():
     if 'sidebar_visible' not in st.session_state:
         st.session_state.sidebar_visible = True
     
-    # Botão para toggle da sidebar - SEMPRE VISÍVEL
-    if st.button(f"{'⬅️ FECHAR PARÂMETROS' if st.session_state.sidebar_visible else '➡️ ABRIR PARÂMETROS'}"):
-        st.session_state.sidebar_visible = not st.session_state.sidebar_visible
+    # HTML para o botão de toggle
+    toggle_text = "⬅️ FECHAR PARÂMETROS" if st.session_state.sidebar_visible else "➡️ ABRIR PARÂMETROS"
+    toggle_class = "" if st.session_state.sidebar_visible else "sidebar-hidden"
+    
+    st.markdown(
+        f"""
+        <button class="sidebar-toggle" onclick="toggleSidebar()">{toggle_text}</button>
+        <div class="app {toggle_class}">
+        """,
+        unsafe_allow_html=True
+    )
+    
+    # Script JavaScript para controle da sidebar
+    st.markdown(
+        """
+        <script>
+        function toggleSidebar() {
+            const currentState = window.parent.document.querySelector('.app').classList.contains('sidebar-hidden');
+            window.parent.document.querySelector('.app').classList.toggle('sidebar-hidden');
+            const newText = currentState ? "⬅️ FECHAR PARÂMETROS" : "➡️ ABRIR PARÂMETROS";
+            window.parent.document.querySelector('.sidebar-toggle').textContent = newText;
+            
+            // Atualiza o estado no Streamlit
+            const newState = !currentState;
+            Streamlit.setComponentValue(newState);
+        }
+        </script>
+        """,
+        unsafe_allow_html=True
+    )
     
     # =====================================
     # LAYOUT PRINCIPAL
     # =====================================
-    if st.session_state.sidebar_visible:
-        with st.sidebar:
-            params = criar_parametros()
-    else:
-        # Carrega parâmetros mesmo com sidebar oculta
+    # Carrega parâmetros na barra lateral
+    with st.sidebar:
         params = criar_parametros()
 
     st.title("Simulador/Estimativa de Financiamento Imobiliário 🚧🏠")
@@ -500,6 +553,9 @@ def main():
                 file_name='simulacao_financiamento.xlsx',
                 mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
             )
+    
+    # Fechar a div do app
+    st.markdown("</div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
