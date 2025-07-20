@@ -280,7 +280,7 @@ def buscar_indices_bc(mes_inicial, meses_total):
         return {}, 0, pd.DataFrame()
 
 # ============================================
-# INTERFACE STREAMLIT (ATUALIZADA)
+# INTERFACE STREAMLIT (ATUALIZADA COM TOGGLE)
 # ============================================
 
 def criar_parametros():
@@ -401,14 +401,55 @@ def mostrar_resultados(df_resultado):
     st.session_state.df_export = df_resultado[colunas].copy()
 
 def main():
+    # =====================================
+    # ESTILO PARA DISPOSITIVOS MÓVEIS
+    # =====================================
+    st.markdown(
+        """
+        <style>
+            @media (max-width: 768px) {
+                div[data-testid="stButton"] button {
+                    width: 100%;
+                    padding: 0.75rem;
+                    font-size: 1.1rem;
+                    background-color: #2563eb;
+                    color: white;
+                    border-radius: 0.5rem;
+                    margin-bottom: 1rem;
+                }
+            }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    # =====================================
+    # CONTROLE DE VISIBILIDADE DA BARRA LATERAL
+    # =====================================
+    # Inicializa estado da sidebar
+    if 'sidebar_visible' not in st.session_state:
+        st.session_state.sidebar_visible = True
+    
+    # Botão para toggle da sidebar - SEMPRE VISÍVEL
+    if st.button(f"{'⬅️ FECHAR PARÂMETROS' if st.session_state.sidebar_visible else '➡️ ABRIR PARÂMETROS'}"):
+        st.session_state.sidebar_visible = not st.session_state.sidebar_visible
+    
+    # =====================================
+    # LAYOUT PRINCIPAL
+    # =====================================
+    if st.session_state.sidebar_visible:
+        with st.sidebar:
+            params = criar_parametros()
+    else:
+        # Carrega parâmetros mesmo com sidebar oculta
+        params = criar_parametros()
+
     st.title("Simulador/Estimativa de Financiamento Imobiliário 🚧🏠")
     
     # Inicializar variáveis de sessão
     if 'df_indices' not in st.session_state:
         st.session_state.df_indices = None
     
-    # Carregar parâmetros
-    params = criar_parametros()
     total_meses = params['num_parcelas_entrada'] + params['meses_pre'] + params['meses_pos']
     
     # Botões de simulação
