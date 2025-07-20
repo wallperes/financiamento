@@ -77,6 +77,10 @@ def calcular_correcao(saldo, mes, fase, params, valores_reais):
     """
     Calcula correção monetária
     """
+    # MODIFICAÇÃO 1: Não aplica correção no primeiro mês
+    if mes == 1:
+        return 0
+    
     limite = params.get('limite_correcao')
     if limite is not None and mes > limite:
         return 0
@@ -164,6 +168,7 @@ def simular_financiamento(params, valores_reais=None):
         
         saldo_inicial = saldo_devedor
         
+        # MODIFICAÇÃO 2: Aplica correção apenas a partir do segundo mês
         correcao_mes = calcular_correcao(
             saldo_devedor, 
             mes_atual, 
@@ -173,11 +178,14 @@ def simular_financiamento(params, valores_reais=None):
         )
         saldo_devedor += correcao_mes
         
-        if parcelas_futuras and correcao_mes != 0:
+        # MODIFICAÇÃO 3: Dilui a correção apenas para meses futuros
+        if mes_atual > 1 and parcelas_futuras and correcao_mes != 0:
             total_original = sum(p['valor_original'] for p in parcelas_futuras)
             if total_original > 0:
                 for p in parcelas_futuras:
-                    p['correcao_acumulada'] += correcao_mes * (p['valor_original'] / total_original)
+                    # Aplica correção apenas para parcelas com vencimento após o mês atual
+                    if p['mes'] > mes_atual:
+                        p['correcao_acumulada'] += correcao_mes * (p['valor_original'] / total_original)
         
         juros_mes = saldo_inicial * params['juros_mensal'] if fase == 'Pós' else 0
         
@@ -207,6 +215,9 @@ def simular_financiamento(params, valores_reais=None):
     # Adicionar coluna com datas formatadas
     df_resultado['Mês/Data'] = datas_formatadas
     return df_resultado
+
+# Restante do código permanece igual...
+# (funções de integração com BC e interface Streamlit)
 
 # ============================================
 # INTEGRAÇÃO COM BANCO CENTRAL
