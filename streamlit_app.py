@@ -68,7 +68,12 @@ def calcular_correcao(saldo, mes, fase, params, valores_reais):
     """
     # Verificar se temos valores reais para usar
     if valores_reais and mes in valores_reais:
-        return saldo * valores_reais[mes]['incc' if fase == 'Pré' else 'ipca']
+        idx = valores_reais[mes]
+        # Usa valor real somente se disponível
+        if fase == 'Pré' and idx['incc'] is not None:
+            return saldo * idx['incc']
+        elif fase == 'Pós' and idx['ipca'] is not None:
+            return saldo * idx['ipca']
     
     # Verificar limite de correção (se aplicável)
     limite_correcao = params.get('limite_correcao')
@@ -174,53 +179,43 @@ def simular_financiamento(params, valores_reais=None):
     return pd.DataFrame(historico)
 
 # ============================================
-# INTEGRAÇÃO COM BANCO CENTRAL (SGS)
+# INTEGRAÇÃO COM BANCO CENTRAL (SGS) - CORRIGIDA!
 # ============================================
 
 def buscar_indices_bc(mes_inicial, meses_total):
     """
-    Busca índices INCC (189) e IPCA (433) do Banco Central usando SGS
+    Busca índices INCC-M (192) e IPCA (433) do Banco Central usando SGS
     """
     try:
         # Converter para objetos datetime
         data_inicio = datetime.strptime(mes_inicial, "%m/%Y").replace(day=1)
         data_fim = data_inicio + timedelta(days=meses_total * 31)
         
-        # Buscar séries temporais usando SGS
-        ts_incc = sgs.time_serie(189, start=data_inicio, end=data_fim)
+        # Buscar séries temporais usando SGS (INCC-M = 192)
+        ts_incc = sgs.time_serie(192, start=data_inicio, end=data_fim)  # Correção: 192 em vez de 189
         ts_ipca = sgs.time_serie(433, start=data_inicio, end=data_fim)
         
-        # Converter para DataFrames e tratar dados
-        df_incc = ts_incc.to_frame(name='incc') if not ts_incc.empty else pd.DataFrame(columns=['incc'])
-        df_ipca = ts_ipca.to_frame(name='ipca') if not ts_ipca.empty else pd.DataFrame(columns=['ipca'])
+        # Processamento robusto com resample mensal
+        df_incc = ts_incc.to_frame(name='incc').resample('M').last() / 100
+        df_ipca = ts_ipca.to_frame(name='ipca').resample('M').last() / 100
         
-        # Combinar dados e converter para dicionário
-        df_combined = pd.concat([df_incc, df_ipca], axis=1).fillna(0)
-        df_combined['incc'] = df_combined['incc'] / 100
-        df_combined['ipca'] = df_combined['ipca'] / 100
+        # Combina e preenche períodos faltantes
+        df_combined = pd.concat([df_incc, df_ipca], axis=1).asfreq('M', fill_value=None)
         
-        # Criar dicionário de índices por mês
+        # Cria dicionário por número de mês
         indices = {}
-        current_date = data_inicio
+        for mes, (date, row) in enumerate(df_combined.iterrows(), start=1):
+            indices[mes] = {
+                'incc': row['incc'] if not pd.isna(row['incc']) else None,
+                'ipca': row['ipca'] if not pd.isna(row['ipca']) else None
+            }
         
-        for mes in range(1, meses_total + 1):
-            date_str = current_date.strftime("%Y-%m-%d")
-            if date_str in df_combined.index:
-                row = df_combined.loc[date_str]
-                indices[mes] = {'incc': row['incc'], 'ipca': row['ipca']}
-            else:
-                indices[mes] = {'incc': 0, 'ipca': 0}
-            
-            # Avançar para o próximo mês
-            next_month = current_date.replace(day=28) + timedelta(days=4)
-            current_date = next_month.replace(day=1)
-        
-        st.success(f"Dados carregados do Banco Central para {len(indices)} meses!")
+        st.success(f"Dados do BC carregados: {len(indices)} meses processados!")
         return indices
         
     except Exception as e:
-        st.error(f"Erro ao acessar dados do Banco Central: {str(e)}")
-        st.info("Verifique: 1) Conexão com internet 2) Formato da data (MM/AAAA) 3) Códigos das séries (189/433)")
+        st.error(f"Erro ao acessar dados do BC: {e}")
+        st.info("Verifique: 1) Conexão com internet 2) Data no formato MM/AAAA")
         return {}
 
 # ============================================
