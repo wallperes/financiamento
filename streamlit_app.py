@@ -200,11 +200,11 @@ def buscar_indices_bc(mes_inicial, meses_total):
         # Calcular data final (mês inicial + total de meses)
         data_fim = data_inicio + relativedelta(months=meses_total)
         
-        # Formatar datas para o padrão SGS
+        # Formatar datas para o padrão SGS (dd/mm/yyyy)
         start_str = data_inicio.strftime("%d/%m/%Y")
         end_str = data_fim.strftime("%d/%m/%Y")
 
-        # Buscar dados diretamente com sgs.dataframe()
+        # Buscar dados com códigos corretos
         df = sgs.dataframe([192, 433], start=start_str, end=end_str)
         
         # Renomear colunas
@@ -220,11 +220,12 @@ def buscar_indices_bc(mes_inicial, meses_total):
         current_date = data_inicio
         
         for mes in range(1, meses_total + 1):
-            # Verificar se temos dados para este mês
-            date_key = current_date.strftime("%Y-%m-01")
+            # Criar timestamp para o primeiro dia do mês
+            timestamp_alvo = pd.Timestamp(current_date)
             
-            if date_key in df.index:
-                row = df.loc[date_key]
+            # Verificar se temos dados para este timestamp
+            if timestamp_alvo in df.index:
+                row = df.loc[timestamp_alvo]
                 incc_val = row['incc'] if not pd.isna(row['incc']) else None
                 ipca_val = row['ipca'] if not pd.isna(row['ipca']) else None
                 
@@ -257,7 +258,6 @@ def buscar_indices_bc(mes_inicial, meses_total):
         st.error(f"Erro ao acessar dados do BC: {str(e)}")
         st.info("Verifique: 1) Conexão com internet 2) Formato da data (MM/AAAA)")
         return {}, 0
-
 # ============================================
 # INTERFACE STREAMLIT (CORRIGIDA)
 # ============================================
