@@ -283,7 +283,7 @@ def criar_parametros():
         'mes_inicial': st.sidebar.text_input("Mês inicial (MM/AAAA)", value="04/2025",
                                             help="Mês de início do financiamento"),
         'valor_total_imovel': st.sidebar.number_input("Valor total do imóvel", value=455750.0,
-                                                    help="Valor total do imóvel a ser financiado. Recomendo somar ao valor do imóvel o valor total da documentação, caso a tenha financiado"),
+                                                    help="Valor total do imóvel a ser financiado."),
         'valor_entrada': st.sidebar.number_input("Valor de entrada", value=22270.54,
                                                help="Valor total de entrada pago pelo comprador"),
         'num_parcelas_entrada': st.sidebar.number_input("Número de parcelas da entrada", min_value=1, value=1, step=1,
