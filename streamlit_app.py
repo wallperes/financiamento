@@ -295,7 +295,7 @@ def criar_parametros():
                                                     help="Valor total do imóvel a ser financiado."),
         'valor_entrada': st.sidebar.number_input("Valor de entrada", value=22270.54,
                                                help="Valor total de entrada pago pelo comprador"),
-        'num_parcelas_entrada': st.sidebar.number_input("Número de parcelas da entrada", min_value=1, value=1, step=1,
+        'num_parcelas_entrada': st.sidebar.number_input("Número de parcelas da entrada", min_value=1, value=3, step=1,
                                                       help="Número de meses em que a entrada será parcelada"),
     }
     
