@@ -1,8 +1,7 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
 import io
-from datetime import datetime, timedelta
+from datetime import datetime
 import sgs
 from dateutil.relativedelta import relativedelta
 
@@ -45,10 +44,14 @@ def construir_parcelas_futuras(params):
         valor_parcela = params['parcelas_mensais_pre']
         
         mes_local = mes - num_parcelas_entrada
-        if mes_local in params['parcelas_semestrais']:
-            valor_parcela += params['parcelas_semestrais'][mes_local]
-        if mes_local in params['parcelas_anuais']:
-            valor_parcela += params['parcelas_anuais'][mes_local]
+        # Adicionar parcelas semestrais
+        for sem_mes in params['parcelas_semestrais']:
+            if mes_local == sem_mes:
+                valor_parcela += params['parcelas_semestrais'][sem_mes]
+        # Adicionar parcelas anuais
+        for anu_mes in params['parcelas_anuais']:
+            if mes_local == anu_mes:
+                valor_parcela += params['parcelas_anuais'][anu_mes]
         
         if valor_parcela > 0:
             parcelas.append({
@@ -293,25 +296,33 @@ def criar_parametros():
         params['valor_amortizacao_pos'] = col4.number_input("Valor parcela pós (R$)", value=3104.62,
                                                            help="Valor da amortização mensal durante a fase pós-chaves")
     
-    # Parcelas extras (movida para posição mais alta)
+    # Parcelas extras (até 4 semestrais)
     st.sidebar.subheader("Parcelas Extras")
-    col_sem1, col_sem2 = st.sidebar.columns(2)
-    with col_sem1:
-        mes_sem = col_sem1.number_input("Mês semestral", value=6, 
-                                       help="Mês (contando a partir do início da fase pré) em que ocorre a parcela semestral")
-    with col_sem2:
-        valor_sem = col_sem2.number_input("Valor semestral (R$)", value=6000.0,
-                                        help="Valor da parcela semestral")
-    if mes_sem > 0 and valor_sem > 0:
-        params['parcelas_semestrais'][int(mes_sem)] = valor_sem
+    
+    # Parcelas Semestrais (até 4)
+    st.sidebar.write("Parcelas Semestrais:")
+    semestrais = []
+    for i in range(4):
+        col_sem1, col_sem2 = st.sidebar.columns(2)
+        with col_sem1:
+            mes_sem = col_sem1.number_input(f"Mês {i+1}", min_value=0, value=6*(i+1) if i<2 else 0, key=f"sem_mes_{i}")
+        with col_sem2:
+            valor_sem = col_sem2.number_input(f"Valor {i+1} (R$)", min_value=0.0, value=6000.0 if i==0 else 0.0, key=f"sem_val_{i}")
+        if mes_sem > 0 and valor_sem > 0:
+            semestrais.append((mes_sem, valor_sem))
+    
+    # Adicionar todas as semestrais ao dicionário
+    for mes, valor in semestrais:
+        if mes > 0 and valor > 0:
+            params['parcelas_semestrais'][int(mes)] = valor
 
+    # Parcelas Anuais
+    st.sidebar.write("Parcelas Anuais:")
     col_anu1, col_anu2 = st.sidebar.columns(2)
     with col_anu1:
-        mes_anu = col_anu1.number_input("Mês anual", value=17,
-                                       help="Mês (contando a partir do início da fase pré) em que ocorre a parcela anual")
+        mes_anu = col_anu1.number_input("Mês", min_value=0, value=17, key="anu_mes")
     with col_anu2:
-        valor_anu = col_anu2.number_input("Valor anual (R$)", value=43300.0,
-                                        help="Valor da parcela anual")
+        valor_anu = col_anu2.number_input("Valor (R$)", min_value=0.0, value=43300.0, key="anu_val")
     if mes_anu > 0 and valor_anu > 0:
         params['parcelas_anuais'][int(mes_anu)] = valor_anu
 
@@ -334,7 +345,7 @@ def criar_parametros():
 
 def mostrar_resultados(df_resultado):
     """
-    Exibe resultados da simulação
+    Exibe resultados da simulação (sem gráficos)
     """
     st.subheader("Tabela de Simulação Detalhada")
     colunas = ['Mês', 'Fase', 'Saldo Devedor', 'Ajuste INCC (R$)', 'Ajuste IPCA (R$)', 
@@ -344,31 +355,6 @@ def mostrar_resultados(df_resultado):
     for col in colunas[2:]:
         df_display[col] = df_display[col].apply(format_currency)
     st.dataframe(df_display)
-
-    st.subheader("Gráficos")
-    fig, axs = plt.subplots(1, 2, figsize=(16, 6))
-    
-    axs[0].plot(df_resultado['Mês'], df_resultado['Saldo Devedor'], 'b-', label='Saldo Devedor')
-    axs[0].set_title("Evolução do Saldo Devedor")
-    axs[0].set_xlabel("Mês")
-    axs[0].set_ylabel("R$")
-    axs[0].grid(True)
-    
-    base_amort = df_resultado['Amortização Base']
-    base_correcao = base_amort + df_resultado['Correção INCC ou IPCA diluída (R$)']
-    
-    axs[1].bar(df_resultado['Mês'], df_resultado['Amortização Base'], label='Amortização')
-    axs[1].bar(df_resultado['Mês'], df_resultado['Correção INCC ou IPCA diluída (R$)'], 
-             bottom=base_amort, label='Correção')
-    axs[1].bar(df_resultado['Mês'], df_resultado['Juros (R$)'], 
-             bottom=base_correcao, label='Juros')
-    axs[1].set_title("Composição das Parcelas")
-    axs[1].set_xlabel("Mês")
-    axs[1].set_ylabel("R$")
-    axs[1].legend()
-    axs[1].grid(True)
-    
-    st.pyplot(fig)
 
 def main():
     st.title("Simulador de Financiamento Imobiliário 🚧🏠")
