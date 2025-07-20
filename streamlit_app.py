@@ -270,6 +270,10 @@ def criar_parametros():
                                                       help="Número de meses em que a entrada será parcelada"),
     }
     
+    # Inicializar dicionários vazios para parcelas extras
+    params['parcelas_semestrais'] = {}
+    params['parcelas_anuais'] = {}
+    
     # Grupo de campos para fases pré e pós
     st.sidebar.subheader("Fases de Pagamento")
     col1, col2 = st.sidebar.columns(2)
@@ -323,10 +327,6 @@ def criar_parametros():
     # Calcular valor mensal da entrada
     params['entrada_mensal'] = params['valor_entrada'] / params['num_parcelas_entrada']
     
-    # Inicializar dicionários vazios
-    params['parcelas_semestrais'] = {}
-    params['parcelas_anuais'] = {}
-
     params['percentual_minimo_quitacao'] = 0.3
     params['limite_correcao'] = None
 
