@@ -31,21 +31,20 @@ def construir_parcelas_futuras(params):
     parcelas = []
     num_parcelas_entrada = params['num_parcelas_entrada']
     
-    # Fase de Entrada (a partir da segunda parcela)
-    if num_parcelas_entrada > 1:
-        for mes in range(1, num_parcelas_entrada):
-            parcelas.append({
-                'mes': mes,
-                'valor_original': params['entrada_mensal'],
-                'correcao_acumulada': 0.0,
-                'tipo': 'entrada'
-            })
+    # Fase de Entrada (todas as parcelas)
+    for mes in range(1, num_parcelas_entrada + 1):
+        parcelas.append({
+            'mes': mes,
+            'valor_original': params['entrada_mensal'],
+            'correcao_acumulada': 0.0,
+            'tipo': 'entrada'
+        })
     
     # Fase Pré-chaves
-    for mes in range(num_parcelas_entrada, num_parcelas_entrada + params['meses_pre']):
+    for mes in range(num_parcelas_entrada + 1, num_parcelas_entrada + 1 + params['meses_pre']):
         valor_parcela = params['parcelas_mensais_pre']
         
-        mes_local = mes - num_parcelas_entrada + 1
+        mes_local = mes - num_parcelas_entrada
         if mes_local in params['parcelas_semestrais']:
             valor_parcela += params['parcelas_semestrais'][mes_local]
         if mes_local in params['parcelas_anuais']:
@@ -60,8 +59,8 @@ def construir_parcelas_futuras(params):
             })
     
     # Fase Pós-chaves
-    for mes in range(num_parcelas_entrada + params['meses_pre'], 
-                    num_parcelas_entrada + params['meses_pre'] + params['meses_pos']):
+    for mes in range(num_parcelas_entrada + 1 + params['meses_pre'], 
+                    num_parcelas_entrada + 1 + params['meses_pre'] + params['meses_pos']):
         parcelas.append({
             'mes': mes,
             'valor_original': params['valor_amortizacao_pos'],
@@ -140,23 +139,23 @@ def simular_financiamento(params, valores_reais=None):
     """
     # Inicialização
     num_parcelas_entrada = params['num_parcelas_entrada']
-    entrada_mensal = params['entrada_mensal']
     
-    # Primeira parcela da entrada é debitada automaticamente
-    saldo_devedor = params['valor_total_imovel'] - entrada_mensal
+    # Saldo devedor inicial é o valor total do imóvel
+    saldo_devedor = params['valor_total_imovel']
     
-    # Total de meses da simulação (incluindo entrada, pré e pós)
-    total_meses = (num_parcelas_entrada - 1) + params['meses_pre'] + params['meses_pos']
+    # Total de meses da simulação (incluindo todas as fases)
+    total_meses = num_parcelas_entrada + params['meses_pre'] + params['meses_pos']
     
+    # Construir todas as parcelas futuras (incluindo todas as de entrada)
     parcelas_futuras = construir_parcelas_futuras(params)
     historico = []
     total_amortizado_pre = 0
 
     for mes_atual in range(1, total_meses + 1):
         # Determinar a fase atual
-        if mes_atual < num_parcelas_entrada:
+        if mes_atual <= num_parcelas_entrada:
             fase = 'Entrada'
-        elif mes_atual < num_parcelas_entrada + params['meses_pre']:
+        elif mes_atual <= num_parcelas_entrada + params['meses_pre']:
             fase = 'Pré'
         else:
             fase = 'Pós'
@@ -206,7 +205,7 @@ def simular_financiamento(params, valores_reais=None):
         })
         
         # Verificar quitacao mínima ao final do pré
-        if fase == 'Pré' and mes_atual == num_parcelas_entrada + params['meses_pre'] - 1:
+        if fase == 'Pré' and mes_atual == num_parcelas_entrada + params['meses_pre']:
             verificar_quitacao_pre(params, total_amortizado_pre)
     
     return pd.DataFrame(historico)
@@ -395,7 +394,7 @@ def main():
     
     # Carregar parâmetros
     params = criar_parametros()
-    total_meses = (params['num_parcelas_entrada'] - 1) + params['meses_pre'] + params['meses_pos']
+    total_meses = params['num_parcelas_entrada'] + params['meses_pre'] + params['meses_pos']
     
     # Botões de simulação
     col1, col2, col3 = st.columns(3)
