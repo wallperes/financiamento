@@ -216,30 +216,29 @@ def buscar_indices_bc(mes_inicial, meses_total):
         df['incc'] = df['incc'] / 100
         df['ipca'] = df['ipca'] / 100
         
-        # Converter o índice para datetime (se necessário)
-        if not isinstance(df.index, pd.DatetimeIndex):
-            df.index = pd.to_datetime(df.index)
-        
         # Criar dicionário por número de mês sequencial
         indices = {}
         ultimo_mes_com_dado = 0
         current_date = data_inicio
         
+        # Criar um dicionário rápido para acesso por data
+        dados_por_data = {}
+        for idx, row in df.iterrows():
+            # Converter a data para formato YYYY-MM-DD
+            data_str = idx.strftime("%Y-%m-%d")
+            dados_por_data[data_str] = {
+                'incc': row['incc'],
+                'ipca': row['ipca']
+            }
+        
         for mes in range(1, meses_total + 1):
-            # Criar timestamp no formato do índice
-            timestamp_alvo = pd.Timestamp(current_date)
+            # Formatar a data no mesmo padrão usado no índice
+            data_str = current_date.strftime("%Y-%m-%d")
             
-            # Verificar se temos dados para este mês
-            # (pode haver variação no dia exato)
-            # Buscar qualquer data no mês
-            dados_mes = df[df.index.to_period('M') == timestamp_alvo.to_period('M')]
-            
-            if not dados_mes.empty:
-                # Pegar a primeira linha do mês (deve ser a única)
-                row = dados_mes.iloc[0]
-                
-                incc_val = row['incc'] if not pd.isna(row['incc']) else None
-                ipca_val = row['ipca'] if not pd.isna(row['ipca']) else None
+            if data_str in dados_por_data:
+                valores = dados_por_data[data_str]
+                incc_val = valores['incc']
+                ipca_val = valores['ipca']
                 
                 if incc_val is not None or ipca_val is not None:
                     ultimo_mes_com_dado = mes
