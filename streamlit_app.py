@@ -193,21 +193,30 @@ def simular_financiamento(params, valores_reais=None):
 # ============================================
 def buscar_indices_bc(mes_inicial, meses_total):
     try:
+        st.write("### Iniciando busca de índices no Banco Central")
+        
         # Converter para objetos datetime
+        st.write("Convertendo datas...")
         data_inicio = datetime.strptime(mes_inicial, "%m/%Y").replace(day=1)
         data_fim = data_inicio + relativedelta(months=meses_total)
         
         # Formatar datas para o padrão SGS
         start_str = data_inicio.strftime("%d/%m/%Y")
         end_str = data_fim.strftime("%d/%m/%Y")
+        st.write(f"- Data inicial: {start_str}")
+        st.write(f"- Data final: {end_str}")
+        st.write(f"- Total de meses: {meses_total}")
 
         # Buscar dados do BC
+        st.write("Buscando dados com sgs.dataframe...")
         df = sgs.dataframe([192, 433], start=start_str, end=end_str)
         
         # Verificar se obteve resultados
         if df.empty:
             st.warning("⚠️ Nenhum dado retornado pelo Banco Central")
             return {}, 0
+        
+        st.write(f"✅ Dados obtidos com sucesso - {len(df)} registros")
         
         # Renomear colunas
         df = df.rename(columns={192: 'incc', 433: 'ipca'})
@@ -216,6 +225,14 @@ def buscar_indices_bc(mes_inicial, meses_total):
         df['incc'] = df['incc'] / 100
         df['ipca'] = df['ipca'] / 100
         
+        # Mostrar estrutura dos dados
+        st.write("### Estrutura dos dados:")
+        st.write(f"Colunas: {df.columns.tolist()}")
+        st.write(f"Primeiro índice: {df.index[0]}")
+        st.write(f"Último índice: {df.index[-1]}")
+        st.write(f"Exemplo de dados:")
+        st.dataframe(df.head(3))
+        
         # Criar dicionário por número de mês sequencial
         indices = {}
         ultimo_mes_com_dado = 0
@@ -223,52 +240,51 @@ def buscar_indices_bc(mes_inicial, meses_total):
         
         # Criar um dicionário rápido para acesso por data
         dados_por_data = {}
+        st.write("### Processando registros...")
         for idx, row in df.iterrows():
             # Converter a data para formato YYYY-MM-DD
             data_str = idx.strftime("%Y-%m-%d")
+            st.write(f"Registro: {data_str} - INCC: {row['incc']}, IPCA: {row['ipca']}")
             dados_por_data[data_str] = {
                 'incc': row['incc'],
                 'ipca': row['ipca']
             }
         
+        st.write(f"Total de registros no dicionário: {len(dados_por_data)}")
+        
+        st.write("### Associando meses...")
         for mes in range(1, meses_total + 1):
             # Formatar a data no mesmo padrão usado no índice
             data_str = current_date.strftime("%Y-%m-%d")
+            st.write(f"\nMês {mes} - Data: {data_str}")
             
             if data_str in dados_por_data:
                 valores = dados_por_data[data_str]
                 incc_val = valores['incc']
                 ipca_val = valores['ipca']
                 
+                st.write(f"Valores encontrados: INCC={incc_val}, IPCA={ipca_val}")
+                
                 if incc_val is not None or ipca_val is not None:
                     ultimo_mes_com_dado = mes
+                    st.write(f"Atualizado último mês com dado: {ultimo_mes_com_dado}")
                     
                 indices[mes] = {'incc': incc_val, 'ipca': ipca_val}
             else:
+                st.write("❌ Data não encontrada no dicionário")
                 indices[mes] = {'incc': None, 'ipca': None}
             
             current_date += relativedelta(months=1)
 
-        st.subheader("Dados Capturados do Banco Central")
-        if not df.empty:
-            st.write(f"Período: {start_str} a {end_str}")
-            st.write(f"📊 Índices reais disponíveis até o mês {ultimo_mes_com_dado}")
-            
-            # Formatar e exibir dados
-            df_display = df.copy()
-            df_display.index = df_display.index.strftime('%b/%Y')
-            df_display = df_display.rename_axis('Data')
-            st.dataframe(df_display.tail().style.format({'incc': '{:.4%}', 'ipca': '{:.4%}'}))
-        else:
-            st.warning("Nenhum dado encontrado para o período")
-
+        st.success(f"📊 Índices capturados até o mês {ultimo_mes_com_dado}")
         return indices, ultimo_mes_com_dado
         
     except Exception as e:
-        st.error(f"Erro ao acessar dados do BC: {str(e)}")
-        st.info("Verifique: 1) Conexão com internet 2) Formato da data (MM/AAAA)")
+        st.error(f"🚨 Erro grave: {str(e)}")
+        st.write("Detalhes do erro:")
+        import traceback
+        st.code(traceback.format_exc())
         return {}, 0
-
 
 # ============================================
 # INTERFACE STREAMLIT (CORRIGIDA)
