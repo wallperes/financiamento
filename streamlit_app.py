@@ -66,12 +66,16 @@ def calcular_correcao(saldo, mes, fase, params, valores_reais):
     """
     Calcula a correção monetária do mês
     """
+    # Verificar se temos valores reais para usar
     if valores_reais and mes in valores_reais:
         return saldo * valores_reais[mes]['incc' if fase == 'Pré' else 'ipca']
     
-    if params['limite_correcao'] and mes > params['limite_correcao']:
+    # Verificar limite de correção (se aplicável)
+    limite_correcao = params.get('limite_correcao')
+    if limite_correcao is not None and mes > limite_correcao:
         return 0
     
+    # Usar valores médios
     return saldo * (params['incc_medio'] if fase == 'Pré' else params['ipca_medio'])
 
 def processar_parcelas_vencidas(parcelas_futuras, mes_atual):
@@ -243,7 +247,8 @@ def criar_parametros():
         'valor_amortizacao_pos': st.sidebar.number_input("Amortização mensal pós (R$)", value=3104.62),
         'parcelas_semestrais': {},
         'parcelas_anuais': {},
-        'percentual_minimo_quitacao': 0.3
+        'percentual_minimo_quitacao': 0.3,
+        'limite_correcao': None  # Inicializado como None
     }
     
     if params['entrada_parcelada']:
@@ -346,11 +351,14 @@ def main():
             st.session_state.df_resultado = simular_financiamento(params)
 
     with col2:
-        params['limite_correcao'] = st.number_input(
+        # Definir limite de correção
+        limite_correcao = st.number_input(
             "Aplicar correção até o mês:", 
             min_value=1, max_value=total_meses, value=params['meses_pre']
         )
         if st.button("Simular Parcial"):
+            # Atualizar o parâmetro antes da simulação
+            params['limite_correcao'] = limite_correcao
             st.session_state.df_resultado = simular_financiamento(params)
 
     with col3:
