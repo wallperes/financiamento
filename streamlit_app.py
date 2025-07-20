@@ -1,19 +1,30 @@
 import streamlit as st
 import pandas as pd
 import datetime
-import sgs  # Importar diretamente o módulo sgs
+import sgs
 
-# Função para obter múltiplas séries temporais do SGS
+# Função para obter uma série temporal individual com tratamento de erros
 @st.cache_data(show_spinner=False)
-def obter_series_sgs(codigos: list, data_inicio: datetime.date, data_fim: datetime.date) -> pd.DataFrame:
+def obter_serie_sgs(codigo_serie: int, data_inicio: datetime.date, data_fim: datetime.date) -> pd.Series:
     try:
-        # Usar a função dataframe() para obter múltiplas séries
-        df = sgs.dataframe(codigos, start=data_inicio, end=data_fim)
-        df.index = pd.to_datetime(df.index)
-        return df.fillna(0.0)
+        # Converter datas para o formato dd/mm/YYYY exigido pela biblioteca
+        data_inicio_str = data_inicio.strftime('%d/%m/%Y')
+        data_fim_str = data_fim.strftime('%d/%m/%Y')
+        
+        # Obter a série temporal
+        serie = sgs.time_serie(codigo_serie, start=data_inicio_str, end=data_fim_str)
+        
+        # Verificar se o retorno é uma Series válida
+        if isinstance(serie, pd.Series):
+            return serie
+        else:
+            # Se não for uma Series, provavelmente é uma mensagem de erro
+            st.error(f"Resposta inesperada para série {codigo_serie}: {str(serie)[:100]}...")
+            return pd.Series()
+            
     except Exception as e:
-        st.error(f"Erro ao buscar as séries: {str(e)}")
-        return pd.DataFrame()
+        st.error(f"Exceção ao buscar a série {codigo_serie}: {str(e)}")
+        return pd.Series()
 
 # Configuração da interface Streamlit
 st.set_page_config(page_title="Índices Econômicos", layout="centered")
@@ -37,21 +48,24 @@ if data_inicio > data_fim:
 # Códigos das séries
 codigo_incc = 7456  # INCC-M mensal
 codigo_ipca = 433   # IPCA mensal
-codigos_series = [codigo_incc, codigo_ipca]
 
 # Obtém dados
 with st.spinner("🔄 Carregando dados do Banco Central..."):
-    df = obter_series_sgs(codigos_series, data_inicio, data_fim)
+    serie_incc = obter_serie_sgs(codigo_incc, data_inicio, data_fim)
+    serie_ipca = obter_serie_sgs(codigo_ipca, data_inicio, data_fim)
 
 # Processamento dos dados
-if not df.empty:
-    # Renomear colunas para nomes amigáveis
-    df = df.rename(columns={
-        codigo_incc: "INCC-M (%)",
-        codigo_ipca: "IPCA (%)"
+if not serie_incc.empty and not serie_ipca.empty:
+    # Cria DataFrame combinado
+    df = pd.DataFrame({
+        "INCC-M (%)": serie_incc,
+        "IPCA (%)": serie_ipca
     })
     
-    st.success(f"✅ Dados carregados com sucesso para o período {data_inicio} a {data_fim}!")
+    # Preenche valores ausentes
+    df = df.fillna(0.0)
+    
+    st.success(f"✅ Dados carregados com sucesso para o período {data_inicio.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}!")
 
     # Exibe tabela
     st.subheader("📅 Variações mensais")
@@ -70,19 +84,25 @@ if not df.empty:
         mime="text/csv"
     )
     
-    # Exibir metadados
-    st.subheader("ℹ️ Metadados das Séries")
-    try:
-        metadados = sgs.metadata(df)
-        for meta in metadados:
-            st.markdown(f"""
-            **Série {meta['code']}**: {meta['name']}
-            - **Fonte**: {meta['source']}
-            - **Unidade**: {meta['unit']}
-            - **Frequência**: {meta['frequency']}
-            - **Período**: {meta['first_value'].strftime('%Y-%m-%d')} a {meta['last_value'].strftime('%Y-%m-%d')}
-            """)
-    except Exception as e:
-        st.warning(f"Não foi possível obter metadados: {str(e)}")
+    # Exibir informações básicas sobre as séries
+    st.subheader("ℹ️ Informações sobre as Séries")
+    st.markdown(f"""
+    - **INCC-M ({codigo_incc})**: Índice Nacional de Custo da Construção - Mercado (FGV)
+    - **IPCA ({codigo_ipca})**: Índice Nacional de Preços ao Consumidor Amplo (IBGE)
+    
+    *Dados obtidos diretamente do Sistema Gerenciador de Séries Temporais (SGS) do Banco Central do Brasil*
+    """)
+    
+    # Estatísticas básicas
+    st.subheader("📊 Estatísticas Descritivas")
+    st.dataframe(df.describe().style.format("{:.2f}"))
+    
 else:
-    st.warning("⚠️ Não foi possível obter os dados das séries. Verifique sua conexão e os parâmetros.")
+    st.warning("⚠️ Não foi possível obter os dados de uma ou ambas as séries. Verifique sua conexão e os parâmetros.")
+    
+    # Exibir informações de debug
+    st.subheader("🔍 Informações para Depuração")
+    st.write(f"Status da série INCC-M ({codigo_incc}): {'Dados encontrados' if not serie_incc.empty else 'Série vazia'}")
+    st.write(f"Status da série IPCA ({codigo_ipca}): {'Dados encontrados' if not serie_ipca.empty else 'Série vazia'}")
+    st.write(f"Intervalo solicitado: {data_inicio.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}")
+    st.write("Dica: Verifique se os códigos das séries estão corretos e se as datas estão no formato DD/MM/AAAA")
