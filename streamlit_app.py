@@ -7,7 +7,7 @@ import sgs
 from dateutil.relativedelta import relativedelta
 
 # ============================================
-# FUNÇÕES UTILITÁRIAS (CORRIGIDAS)
+# FUNÇÕES UTILITÁRIAS (ATUALIZADAS)
 # ============================================
 
 def format_currency(value):
@@ -29,19 +29,27 @@ def construir_parcelas_futuras(params):
     Cria lista de parcelas futuras com base nos parâmetros
     """
     parcelas = []
-    valor_entrada = params['valor_entrada']
-    entrada_mensal = params['entrada_mensal']
+    num_parcelas_entrada = params['num_parcelas_entrada']
     
-    # Pré-chaves
-    for mes in range(1, params['meses_pre'] + 1):
+    # Fase de Entrada (a partir da segunda parcela)
+    if num_parcelas_entrada > 1:
+        for mes in range(1, num_parcelas_entrada):
+            parcelas.append({
+                'mes': mes,
+                'valor_original': params['entrada_mensal'],
+                'correcao_acumulada': 0.0,
+                'tipo': 'entrada'
+            })
+    
+    # Fase Pré-chaves
+    for mes in range(num_parcelas_entrada, num_parcelas_entrada + params['meses_pre']):
         valor_parcela = params['parcelas_mensais_pre']
         
-        if mes in params['parcelas_semestrais']:
-            valor_parcela += params['parcelas_semestrais'][mes]
-        if mes in params['parcelas_anuais']:
-            valor_parcela += params['parcelas_anuais'][mes]
-        if params['entrada_parcelada'] and mes <= (valor_entrada / entrada_mensal):
-            valor_parcela += entrada_mensal
+        mes_local = mes - num_parcelas_entrada + 1
+        if mes_local in params['parcelas_semestrais']:
+            valor_parcela += params['parcelas_semestrais'][mes_local]
+        if mes_local in params['parcelas_anuais']:
+            valor_parcela += params['parcelas_anuais'][mes_local]
         
         if valor_parcela > 0:
             parcelas.append({
@@ -51,11 +59,11 @@ def construir_parcelas_futuras(params):
                 'tipo': 'pre'
             })
     
-    # Pós-chaves
-    for mes in range(1, params['meses_pos'] + 1):
-        mes_global = params['meses_pre'] + mes
+    # Fase Pós-chaves
+    for mes in range(num_parcelas_entrada + params['meses_pre'], 
+                    num_parcelas_entrada + params['meses_pre'] + params['meses_pos']):
         parcelas.append({
-            'mes': mes_global,
+            'mes': mes,
             'valor_original': params['valor_amortizacao_pos'],
             'correcao_acumulada': 0.0,
             'tipo': 'pos'
@@ -80,12 +88,17 @@ def calcular_correcao(saldo, mes, fase, params, valores_reais):
         if mes in valores_reais:
             idx = valores_reais[mes]
             # Usar índice real apenas se disponível para a fase
-            if fase == 'Pré' and idx.get('incc') is not None:
+            if fase in ['Entrada','Pré'] and idx.get('incc') is not None:
                 return saldo * idx['incc']
             elif fase == 'Pós' and idx.get('ipca') is not None:
                 return saldo * idx['ipca']
     
-    # Não aplicar correção se não houver dados reais disponíveis
+    # Se não temos valores reais, usar a média
+    if fase in ['Entrada','Pré']:
+        return saldo * params['incc_medio']
+    elif fase == 'Pós':
+        return saldo * params['ipca_medio']
+    
     return 0
 
 def processar_parcelas_vencidas(parcelas_futuras, mes_atual):
@@ -110,7 +123,7 @@ def verificar_quitacao_pre(params, total_amortizado):
     """
     Verifica se quitacao mínima foi atingida no final do pré
     """
-    valor_quitado = (0 if params['entrada_parcelada'] else params['valor_entrada']) + total_amortizado
+    valor_quitado = params['valor_entrada'] + total_amortizado
     percentual = valor_quitado / params['valor_total_imovel']
     
     if percentual < params['percentual_minimo_quitacao']:
@@ -118,7 +131,7 @@ def verificar_quitacao_pre(params, total_amortizado):
         st.warning(f"Atenção: valor quitado na pré ({valor_fmt}) equivale a {percentual*100:.2f}% do valor do imóvel, abaixo de {params['percentual_minimo_quitacao']*100:.0f}%.")
 
 # ============================================
-# LÓGICA PRINCIPAL DE SIMULAÇÃO (CORRIGIDA)
+# LÓGICA PRINCIPAL DE SIMULAÇÃO (ATUALIZADA)
 # ============================================
 
 def simular_financiamento(params, valores_reais=None):
@@ -126,20 +139,31 @@ def simular_financiamento(params, valores_reais=None):
     Executa a simulação completa do financiamento
     """
     # Inicialização
-    saldo_devedor = params['valor_total_imovel'] - params['valor_entrada']
-    if params['entrada_parcelada']:
-        saldo_devedor = params['valor_total_imovel']
+    num_parcelas_entrada = params['num_parcelas_entrada']
+    entrada_mensal = params['entrada_mensal']
+    
+    # Primeira parcela da entrada é debitada automaticamente
+    saldo_devedor = params['valor_total_imovel'] - entrada_mensal
+    
+    # Total de meses da simulação (incluindo entrada, pré e pós)
+    total_meses = (num_parcelas_entrada - 1) + params['meses_pre'] + params['meses_pos']
     
     parcelas_futuras = construir_parcelas_futuras(params)
     historico = []
     total_amortizado_pre = 0
-    total_meses = params['meses_pre'] + params['meses_pos']
 
     for mes_atual in range(1, total_meses + 1):
-        fase = 'Pré' if mes_atual <= params['meses_pre'] else 'Pós'
+        # Determinar a fase atual
+        if mes_atual < num_parcelas_entrada:
+            fase = 'Entrada'
+        elif mes_atual < num_parcelas_entrada + params['meses_pre']:
+            fase = 'Pré'
+        else:
+            fase = 'Pós'
+        
         saldo_inicial = saldo_devedor
         
-        # Calcular correção monetária (apenas se houver índice real)
+        # Calcular correção monetária
         correcao_mes = calcular_correcao(
             saldo_devedor, 
             mes_atual, 
@@ -149,7 +173,7 @@ def simular_financiamento(params, valores_reais=None):
         )
         saldo_devedor += correcao_mes
         
-        # Aplicar correção nas parcelas futuras (sempre que houver correção)
+        # Aplicar correção nas parcelas futuras
         if parcelas_futuras and correcao_mes != 0:
             total_original = sum(p['valor_original'] for p in parcelas_futuras)
             if total_original > 0:  # Evitar divisão por zero
@@ -177,18 +201,18 @@ def simular_financiamento(params, valores_reais=None):
             'Amortização Base': amortizacao,
             'Correção INCC ou IPCA diluída (R$)': correcao_paga,
             'Juros (R$)': juros_mes,
-            'Ajuste INCC (R$)': correcao_mes if fase == 'Pré' else 0,
+            'Ajuste INCC (R$)': correcao_mes if fase in ['Entrada','Pré'] else 0,
             'Ajuste IPCA (R$)': correcao_mes if fase == 'Pós' else 0
         })
         
         # Verificar quitacao mínima ao final do pré
-        if fase == 'Pré' and mes_atual == params['meses_pre']:
+        if fase == 'Pré' and mes_atual == num_parcelas_entrada + params['meses_pre'] - 1:
             verificar_quitacao_pre(params, total_amortizado_pre)
     
     return pd.DataFrame(historico)
 
 # ============================================
-# INTEGRAÇÃO COM BANCO CENTRAL (SGS) - CORRIGIDA
+# INTEGRAÇÃO COM BANCO CENTRAL (SGS)
 # ============================================
 def buscar_indices_bc(mes_inicial, meses_total):
     try:
@@ -269,7 +293,7 @@ def buscar_indices_bc(mes_inicial, meses_total):
         return {}, 0
 
 # ============================================
-# INTERFACE STREAMLIT (CORRIGIDA)
+# INTERFACE STREAMLIT (ATUALIZADA)
 # ============================================
 
 def criar_parametros():
@@ -281,8 +305,7 @@ def criar_parametros():
         'mes_inicial': st.sidebar.text_input("Mês inicial (MM/AAAA)", value="01/2023"),
         'valor_total_imovel': st.sidebar.number_input("Valor total do imóvel", value=455750.0),
         'valor_entrada': st.sidebar.number_input("Valor de entrada", value=22270.54),
-        'entrada_parcelada': st.sidebar.checkbox("Entrada parcelada?", value=False),
-        'entrada_mensal': 0,
+        'num_parcelas_entrada': st.sidebar.number_input("Número de parcelas da entrada", min_value=1, value=1, step=1),
         'meses_pre': st.sidebar.number_input("Meses pré-chaves", value=17),
         'meses_pos': st.sidebar.number_input("Meses pós-chaves", value=100),
         'incc_medio': st.sidebar.number_input("INCC médio mensal", value=0.00544640781, step=0.0001, format="%.4f"),
@@ -296,9 +319,9 @@ def criar_parametros():
         'limite_correcao': None
     }
     
-    if params['entrada_parcelada']:
-        params['entrada_mensal'] = st.sidebar.number_input("Valor mensal da entrada", value=5000.0)
-
+    # Calcular valor mensal da entrada
+    params['entrada_mensal'] = params['valor_entrada'] / params['num_parcelas_entrada']
+    
     # Parcelas extras
     st.sidebar.subheader("Parcelas Semestrais")
     for i in range(2):
@@ -372,7 +395,7 @@ def main():
     
     # Carregar parâmetros
     params = criar_parametros()
-    total_meses = params['meses_pre'] + params['meses_pos']
+    total_meses = (params['num_parcelas_entrada'] - 1) + params['meses_pre'] + params['meses_pos']
     
     # Botões de simulação
     col1, col2, col3 = st.columns(3)
