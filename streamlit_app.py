@@ -252,6 +252,7 @@ def buscar_indices_bc(mes_inicial, meses_total):
         st.error(f"Erro ao acessar dados do BC: {str(e)}")
         st.info("Verifique: 1) Conexão com internet 2) Formato da data inicial (MM/AAAA)")
         return {}
+
 # ============================================
 # INTERFACE STREAMLIT
 # ============================================
