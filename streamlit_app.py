@@ -4,10 +4,11 @@ import matplotlib.pyplot as plt
 import io
 from datetime import datetime, timedelta
 import sgs
-from dateutil.relativedelta import relativedelta  # Adicionada esta importação
+from dateutil.relativedelta import relativedelta
+import calendar  # Adicionei esta importação
 
 # ============================================
-# FUNÇÕES UTILITÁRIAS
+# FUNÇÕES UTILITÁRIAS (CORRIGIDAS)
 # ============================================
 
 def format_currency(value):
@@ -65,7 +66,10 @@ def construir_parcelas_futuras(params):
 
 def calcular_correcao(saldo, mes, fase, params, valores_reais):
     """
-    Calcula a correção monetária, usando valores reais se disponíveis
+    Corrigida para:
+    - Aplicar correção apenas quando houver índice real disponível
+    - Não usar médias após dados reais
+    - Respeitar limite de correção
     """
     # Verificar limite de correção
     limite = params.get('limite_correcao')
@@ -76,16 +80,14 @@ def calcular_correcao(saldo, mes, fase, params, valores_reais):
     if valores_reais is not None:
         if mes in valores_reais:
             idx = valores_reais[mes]
+            # Usar índice real apenas se disponível para a fase
             if fase == 'Pré' and idx.get('incc') is not None:
                 return saldo * idx['incc']
             elif fase == 'Pós' and idx.get('ipca') is not None:
                 return saldo * idx['ipca']
     
-    # Usar valores médios se não houver valores reais disponíveis
-    if fase == 'Pré':
-        return saldo * params.get('incc_medio', 0)
-    else:
-        return saldo * params.get('ipca_medio', 0)
+    # Não aplicar correção se não houver dados reais disponíveis
+    return 0
 
 def processar_parcelas_vencidas(parcelas_futuras, mes_atual):
     """
@@ -117,7 +119,7 @@ def verificar_quitacao_pre(params, total_amortizado):
         st.warning(f"Atenção: valor quitado na pré ({valor_fmt}) equivale a {percentual*100:.2f}% do valor do imóvel, abaixo de {params['percentual_minimo_quitacao']*100:.0f}%.")
 
 # ============================================
-# LÓGICA PRINCIPAL DE SIMULAÇÃO
+# LÓGICA PRINCIPAL DE SIMULAÇÃO (CORRIGIDA)
 # ============================================
 
 def simular_financiamento(params, valores_reais=None):
@@ -138,7 +140,7 @@ def simular_financiamento(params, valores_reais=None):
         fase = 'Pré' if mes_atual <= params['meses_pre'] else 'Pós'
         saldo_inicial = saldo_devedor
         
-        # Calcular correção monetária
+        # Calcular correção monetária (apenas se houver índice real)
         correcao_mes = calcular_correcao(
             saldo_devedor, 
             mes_atual, 
@@ -148,7 +150,7 @@ def simular_financiamento(params, valores_reais=None):
         )
         saldo_devedor += correcao_mes
         
-        # Aplicar correção nas parcelas futuras
+        # Aplicar correção nas parcelas futuras (sempre que houver correção)
         if parcelas_futuras and correcao_mes != 0:
             total_original = sum(p['valor_original'] for p in parcelas_futuras)
             if total_original > 0:  # Evitar divisão por zero
@@ -187,50 +189,65 @@ def simular_financiamento(params, valores_reais=None):
     return pd.DataFrame(historico)
 
 # ============================================
-# INTEGRAÇÃO COM BANCO CENTRAL (SGS)
+# INTEGRAÇÃO COM BANCO CENTRAL (SGS) - CORRIGIDA
 # ============================================
 
 def buscar_indices_bc(mes_inicial, meses_total):
     try:
-        # Converter para objetos datetime (dia fixo como 1)
+        # Converter para objetos datetime
         data_inicio = datetime.strptime(mes_inicial, "%m/%Y").replace(day=1)
-        data_fim = datetime.today().replace(day=1)
+        
+        # Calcular data final (mês inicial + total de meses)
+        data_fim = data_inicio + relativedelta(months=meses_total)
         
         # Formatar datas para o padrão SGS
         start_str = data_inicio.strftime("%d/%m/%Y")
         end_str = data_fim.strftime("%d/%m/%Y")
 
-        # Buscar séries INCC (192) e IPCA (433) do Bacen
+        # Buscar dados diretamente com sgs.dataframe()
         df = sgs.dataframe([192, 433], start=start_str, end=end_str)
+        
+        # Renomear colunas
         df = df.rename(columns={192: 'incc', 433: 'ipca'})
+        
+        # Converter para decimal (valores vêm como porcentagem)
         df['incc'] = df['incc'] / 100
         df['ipca'] = df['ipca'] / 100
 
-        # Construir dicionário de índices por mês
+        # Criar dicionário por número de mês sequencial
         indices = {}
-        current_date = data_inicio
         ultimo_mes_com_dado = 0
+        current_date = data_inicio
         
         for mes in range(1, meses_total + 1):
-            if current_date > datetime.today():
-                break
-            if current_date in df.index:
-                row = df.loc[current_date]
+            # Verificar se temos dados para este mês
+            date_key = current_date.strftime("%Y-%m-01")
+            
+            if date_key in df.index:
+                row = df.loc[date_key]
                 incc_val = row['incc'] if not pd.isna(row['incc']) else None
                 ipca_val = row['ipca'] if not pd.isna(row['ipca']) else None
                 
-                # Só incluir meses com dados reais
                 if incc_val is not None or ipca_val is not None:
-                    indices[mes] = {'incc': incc_val, 'ipca': ipca_val}
                     ultimo_mes_com_dado = mes
+                    
+                indices[mes] = {'incc': incc_val, 'ipca': ipca_val}
+            else:
+                indices[mes] = {'incc': None, 'ipca': None}
             
+            # Avançar para o próximo mês
             current_date += relativedelta(months=1)
-        
+
         st.subheader("Dados Capturados do Banco Central")
         if not df.empty:
             st.write(f"Período: {start_str} a {end_str}")
-            st.write(f"Índices reais disponíveis até o mês {ultimo_mes_com_dado}")
-            st.dataframe(df.tail().style.format({'incc': '{:.4%}', 'ipca': '{:.4%}'}))
+            st.write(f"📊 Índices reais disponíveis até o mês {ultimo_mes_com_dado} ({current_date.strftime('%m/%Y')})")
+            
+            # Formatar e exibir dados
+            df_display = df.copy()
+            df_display.index = df_display.index.strftime('%b/%Y')
+            df_display = df_display.rename_axis('Data')
+            st.dataframe(df_display.tail().style.format({'incc': '{:.4%}', 'ipca': '{:.4%}'}))
         else:
             st.warning("Nenhum dado encontrado para o período")
 
@@ -242,7 +259,7 @@ def buscar_indices_bc(mes_inicial, meses_total):
         return {}, 0
 
 # ============================================
-# INTERFACE STREAMLIT
+# INTERFACE STREAMLIT (CORRIGIDA)
 # ============================================
 
 def criar_parametros():
@@ -298,7 +315,7 @@ def criar_editor_indices(total_meses):
     st.info("Preencha os valores como decimais (ex: 0.005 para 0.5%)")
     df = pd.DataFrame(index=range(1, total_meses + 1), columns=['INCC', 'IPCA'])
     df.index.name = 'Mês'
-    return st.data_editor(df.fillna(0.0), use_container_width=True, height=min(300, 35 * total_meses + 40))
+    return st.data_editor(df, use_container_width=True, height=min(300, 35 * total_meses + 40))
 
 def mostrar_resultados(df_resultado):
     """
@@ -364,37 +381,53 @@ def main():
     # Botões de simulação
     col1, col2, col3 = st.columns(3)
     valores_reais = None
+    ultimo_mes_com_dado = 0  # Armazenar último mês com dados reais
 
     with col1:
         if st.button("Simular com Parâmetros Médios"):
-            st.session_state.df_resultado = simular_financiamento(params)
+            # Resetar limite e usar médias
+            params_sim = params.copy()
+            params_sim['limite_correcao'] = None
+            st.session_state.df_resultado = simular_financiamento(params_sim)
 
     with col2:
+        # Definir limite de correção
         limite_correcao = st.number_input(
             "Aplicar correção até o mês:", 
             min_value=1, max_value=total_meses, value=params['meses_pre']
         )
         if st.button("Simular Parcial"):
-            params['limite_correcao'] = limite_correcao
-            st.session_state.df_resultado = simular_financiamento(params)
+            params_sim = params.copy()
+            params_sim['limite_correcao'] = limite_correcao
+            st.session_state.df_resultado = simular_financiamento(params_sim)
 
     with col3:
         if st.button("Simular com Valores Reais"):
             if params['fonte_indices'] == 'Banco Central':
                 valores_reais, ultimo_mes_com_dado = buscar_indices_bc(params['mes_inicial'], total_meses)
-                params['limite_correcao'] = ultimo_mes_com_dado
-                st.session_state.df_resultado = simular_financiamento(params, valores_reais)
+                params_sim = params.copy()
+                # Usar apenas dados reais disponíveis
+                params_sim['limite_correcao'] = ultimo_mes_com_dado
+                st.session_state.df_resultado = simular_financiamento(params_sim, valores_reais)
             else:
                 valores_reais = {}
                 for mes, row in edited_df.iterrows():
-                    if row['INCC'] != 0 or row['IPCA'] != 0:
-                        valores_reais[mes] = {'incc': row['INCC'], 'ipca': row['IPCA']}
+                    if not pd.isna(row['INCC']) or not pd.isna(row['IPCA']):
+                        valores_reais[mes] = {
+                            'incc': row['INCC'] if not pd.isna(row['INCC']) else None,
+                            'ipca': row['IPCA'] if not pd.isna(row['IPCA']) else None
+                        }
+                # Definir limite como último mês com dados
                 if valores_reais:
-                    params['limite_correcao'] = max(valores_reais.keys())
+                    ultimo_mes_com_dado = max(valores_reais.keys())
                 else:
-                    params['limite_correcao'] = 0
+                    ultimo_mes_com_dado = 0
                 
-                st.session_state.df_resultado = simular_financiamento(params, valores_reais)
+                params_sim = params.copy()
+                params_sim['limite_correcao'] = ultimo_mes_com_dado
+                st.session_state.df_resultado = simular_financiamento(params_sim, valores_reais)
+                
+            st.info(f"⚠️ Correção aplicada apenas até o mês {ultimo_mes_com_dado} (dados reais disponíveis)")
 
     # Exibir resultados
     if 'df_resultado' in st.session_state:
