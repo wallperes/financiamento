@@ -80,8 +80,8 @@ def calcular_correcao(saldo, mes, fase, params, valores_reais):
     if limite_correcao is not None and mes > limite_correcao:
         return 0
     
-    # Usar valores médios
-    return saldo * (params['incc_medio'] if fase == 'Pré' else params['ipca_medio'])
+    # Se não há valor real e não há limite de correção, não aplicamos correção
+    return 0
 
 def processar_parcelas_vencidas(parcelas_futuras, mes_atual):
     """
@@ -142,7 +142,7 @@ def simular_financiamento(params, valores_reais=None):
         saldo_devedor += correcao_mes
         
         # Aplicar correção nas parcelas futuras
-        if parcelas_futuras:
+        if parcelas_futuras and correcao_mes != 0:
             total_original = sum(p['valor_original'] for p in parcelas_futuras)
             for p in parcelas_futuras:
                 p['correcao_acumulada'] += correcao_mes * (p['valor_original'] / total_original)
@@ -192,30 +192,55 @@ def buscar_indices_bc(mes_inicial, meses_total):
         data_fim = data_inicio + timedelta(days=meses_total * 31)
         
         # Buscar séries temporais usando SGS (INCC-M = 192)
-        ts_incc = sgs.time_serie(192, start=data_inicio, end=data_fim)  # Correção: 192 em vez de 189
-        ts_ipca = sgs.time_serie(433, start=data_inicio, end=data_fim)
+        ts_incc = sgs.time_serie(192, start=data_inicio, end=data_fim)  # INCC-M
+        ts_ipca = sgs.time_serie(433, start=data_inicio, end=data_fim)  # IPCA
         
-        # Processamento robusto com resample mensal
-        df_incc = ts_incc.to_frame(name='incc').resample('M').last() / 100
-        df_ipca = ts_ipca.to_frame(name='ipca').resample('M').last() / 100
+        # Criar dataframes vazios para caso não haja dados
+        df_incc = pd.DataFrame(columns=['incc'])
+        df_ipca = pd.DataFrame(columns=['ipca'])
         
-        # Combina e preenche períodos faltantes
-        df_combined = pd.concat([df_incc, df_ipca], axis=1).asfreq('M', fill_value=None)
+        # Processar dados se existirem
+        if not ts_incc.empty:
+            df_incc = ts_incc.to_frame(name='incc').resample('M').last() / 100
+        if not ts_ipca.empty:
+            df_ipca = ts_ipca.to_frame(name='ipca').resample('M').last() / 100
         
-        # Cria dicionário por número de mês
+        # Combina os dados
+        df_combined = pd.concat([df_incc, df_ipca], axis=1)
+        
+        # Criar dicionário por número de mês
         indices = {}
-        for mes, (date, row) in enumerate(df_combined.iterrows(), start=1):
-            indices[mes] = {
-                'incc': row['incc'] if not pd.isna(row['incc']) else None,
-                'ipca': row['ipca'] if not pd.isna(row['ipca']) else None
-            }
+        current_date = data_inicio
         
-        st.success(f"Dados do BC carregados: {len(indices)} meses processados!")
+        for mes in range(1, meses_total + 1):
+            # Formatar data como string para comparação
+            date_str = current_date.strftime("%Y-%m-01")
+            
+            # Verificar se temos dados para este mês
+            if date_str in df_combined.index:
+                row = df_combined.loc[date_str]
+                incc_val = row['incc'] if 'incc' in row and not pd.isna(row['incc']) else None
+                ipca_val = row['ipca'] if 'ipca' in row and not pd.isna(row['ipca']) else None
+            else:
+                incc_val = None
+                ipca_val = None
+            
+            indices[mes] = {'incc': incc_val, 'ipca': ipca_val}
+            
+            # Avançar para o próximo mês
+            if current_date.month == 12:
+                current_date = current_date.replace(year=current_date.year + 1, month=1)
+            else:
+                current_date = current_date.replace(month=current_date.month + 1)
+        
+        # Contar quantos valores reais foram obtidos
+        valores_reais = sum(1 for v in indices.values() if v['incc'] is not None or v['ipca'] is not None)
+        st.success(f"Dados do BC carregados: {valores_reais} valores reais encontrados!")
         return indices
         
     except Exception as e:
-        st.error(f"Erro ao acessar dados do BC: {e}")
-        st.info("Verifique: 1) Conexão com internet 2) Data no formato MM/AAAA")
+        st.error(f"Erro ao acessar dados do BC: {str(e)}")
+        st.info("Verifique: 1) Conexão com internet 2) Formato da data (MM/AAAA) 3) Códigos das séries (192/433)")
         return {}
 
 # ============================================
