@@ -272,22 +272,46 @@ def criar_parametros():
     
     # Grupo de campos para fases pré e pós
     st.sidebar.subheader("Fases de Pagamento")
-    col1, col2, col3, col4 = st.sidebar.columns(4)
+    col1, col2 = st.sidebar.columns(2)
     
     with col1:
         params['meses_pre'] = col1.number_input("Meses pré-chaves", value=17,
                                               help="Quantidade de meses da fase pré-chaves (antes da obra)")
     with col2:
-        params['parcelas_mensais_pre'] = col2.number_input("Valor parcela pré (R$)", value=3983.38,
-                                                          help="Valor da parcela mensal durante a fase pré-chaves")
-    with col3:
-        params['meses_pos'] = col3.number_input("Meses pós-chaves", value=100,
+        params['meses_pos'] = col2.number_input("Meses pós-chaves", value=100,
                                                help="Quantidade de meses da fase pós-chaves (após a entrega das chaves)")
+    
+    col3, col4 = st.sidebar.columns(2)
+    with col3:
+        params['parcelas_mensais_pre'] = col3.number_input("Valor parcela pré (R$)", value=3983.38,
+                                                          help="Valor da parcela mensal durante a fase pré-chaves")
     with col4:
         params['valor_amortizacao_pos'] = col4.number_input("Valor parcela pós (R$)", value=3104.62,
                                                            help="Valor da amortização mensal durante a fase pós-chaves")
     
-    # Outros parâmetros
+    # Parcelas extras (movida para posição mais alta)
+    st.sidebar.subheader("Parcelas Extras")
+    col_sem1, col_sem2 = st.sidebar.columns(2)
+    with col_sem1:
+        mes_sem = col_sem1.number_input("Mês semestral", value=6, 
+                                       help="Mês (contando a partir do início da fase pré) em que ocorre a parcela semestral")
+    with col_sem2:
+        valor_sem = col_sem2.number_input("Valor semestral (R$)", value=6000.0,
+                                        help="Valor da parcela semestral")
+    if mes_sem > 0 and valor_sem > 0:
+        params['parcelas_semestrais'][int(mes_sem)] = valor_sem
+
+    col_anu1, col_anu2 = st.sidebar.columns(2)
+    with col_anu1:
+        mes_anu = col_anu1.number_input("Mês anual", value=17,
+                                       help="Mês (contando a partir do início da fase pré) em que ocorre a parcela anual")
+    with col_anu2:
+        valor_anu = col_anu2.number_input("Valor anual (R$)", value=43300.0,
+                                        help="Valor da parcela anual")
+    if mes_anu > 0 and valor_anu > 0:
+        params['parcelas_anuais'][int(mes_anu)] = valor_anu
+
+    # Parâmetros de correção (última seção)
     st.sidebar.subheader("Parâmetros de Correção")
     params['incc_medio'] = st.sidebar.number_input("INCC médio mensal", value=0.00544640781, step=0.0001, format="%.4f",
                                                  help="Taxa média mensal de correção pelo INCC (usada na fase pré-chaves)")
@@ -299,31 +323,9 @@ def criar_parametros():
     # Calcular valor mensal da entrada
     params['entrada_mensal'] = params['valor_entrada'] / params['num_parcelas_entrada']
     
-    # Parcelas extras
-    st.sidebar.subheader("Parcelas Extras")
+    # Inicializar dicionários vazios
     params['parcelas_semestrais'] = {}
     params['parcelas_anuais'] = {}
-    
-    col_sem1, col_sem2 = st.sidebar.columns(2)
-    col_anu1, col_anu2 = st.sidebar.columns(2)
-    
-    with col_sem1:
-        mes_sem = col_sem1.number_input("Mês semestral", value=6, 
-                                       help="Mês (contando a partir do início da fase pré) em que ocorre a parcela semestral")
-    with col_sem2:
-        valor_sem = col_sem2.number_input("Valor semestral (R$)", value=6000.0,
-                                        help="Valor da parcela semestral")
-    if mes_sem > 0 and valor_sem > 0:
-        params['parcelas_semestrais'][int(mes_sem)] = valor_sem
-
-    with col_anu1:
-        mes_anu = col_anu1.number_input("Mês anual", value=17,
-                                       help="Mês (contando a partir do início da fase pré) em que ocorre a parcela anual")
-    with col_anu2:
-        valor_anu = col_anu2.number_input("Valor anual (R$)", value=43300.0,
-                                        help="Valor da parcela anual")
-    if mes_anu > 0 and valor_anu > 0:
-        params['parcelas_anuais'][int(mes_anu)] = valor_anu
 
     params['percentual_minimo_quitacao'] = 0.3
     params['limite_correcao'] = None
