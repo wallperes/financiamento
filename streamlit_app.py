@@ -77,10 +77,6 @@ def calcular_correcao(saldo, mes, fase, params, valores_reais):
     """
     Calcula correção monetária
     """
-    # MODIFICAÇÃO 1: Não aplica correção no primeiro mês
-    if mes == 1:
-        return 0
-    
     limite = params.get('limite_correcao')
     if limite is not None and mes > limite:
         return 0
@@ -130,12 +126,12 @@ def verificar_quitacao_pre(params, total_amortizado):
         st.warning(f"Atenção: valor quitado na pré ({valor_fmt}) equivale a {percentual*100:.2f}% do valor do imóvel, abaixo de {params['percentual_minimo_quitacao']*100:.0f}%.")
 
 # ============================================
-# LÓGICA PRINCIPAL DE SIMULAÇÃO
+# LÓGICA PRINCIPAL DE SIMULAÇÃO (CORRIGIDA)
 # ============================================
 
 def simular_financiamento(params, valores_reais=None):
     """
-    Executa a simulação completa
+    Executa a simulação completa com lógica corrigida
     """
     num_parcelas_entrada = params['num_parcelas_entrada']
     saldo_devedor = params['valor_total_imovel']
@@ -168,7 +164,11 @@ def simular_financiamento(params, valores_reais=None):
         
         saldo_inicial = saldo_devedor
         
-        # MODIFICAÇÃO 2: Aplica correção apenas a partir do segundo mês
+        # 1. Pagar as parcelas do mês atual
+        pagamento, amortizacao, correcao_paga = processar_parcelas_vencidas(parcelas_futuras, mes_atual)
+        saldo_devedor -= amortizacao  # Reduz o saldo devedor pela amortização
+        
+        # 2. Calcular a correção sobre o saldo remanescente APÓS o pagamento
         correcao_mes = calcular_correcao(
             saldo_devedor, 
             mes_atual, 
@@ -176,22 +176,18 @@ def simular_financiamento(params, valores_reais=None):
             params, 
             valores_reais
         )
+        
+        # 3. Aplicar a correção ao saldo devedor
         saldo_devedor += correcao_mes
         
-        # MODIFICAÇÃO 3: Dilui a correção apenas para meses futuros
-        if mes_atual > 1 and parcelas_futuras and correcao_mes != 0:
+        # 4. Diluir a correção para TODOS os meses futuros
+        if parcelas_futuras and correcao_mes != 0:
             total_original = sum(p['valor_original'] for p in parcelas_futuras)
             if total_original > 0:
                 for p in parcelas_futuras:
-                    # Aplica correção apenas para parcelas com vencimento após o mês atual
-                    if p['mes'] > mes_atual:
-                        p['correcao_acumulada'] += correcao_mes * (p['valor_original'] / total_original)
+                    p['correcao_acumulada'] += correcao_mes * (p['valor_original'] / total_original)
         
         juros_mes = saldo_inicial * params['juros_mensal'] if fase == 'Pós' else 0
-        
-        pagamento, amortizacao, correcao_paga = processar_parcelas_vencidas(parcelas_futuras, mes_atual)
-        saldo_devedor -= (amortizacao + correcao_paga)
-        saldo_devedor = max(saldo_devedor, 0)
         
         if fase == 'Pré':
             total_amortizado_pre += amortizacao
@@ -215,9 +211,6 @@ def simular_financiamento(params, valores_reais=None):
     # Adicionar coluna com datas formatadas
     df_resultado['Mês/Data'] = datas_formatadas
     return df_resultado
-
-# Restante do código permanece igual...
-# (funções de integração com BC e interface Streamlit)
 
 # ============================================
 # INTEGRAÇÃO COM BANCO CENTRAL
@@ -428,7 +421,7 @@ def main():
         limite_correcao = st.number_input(
             "Aplicar correção até o mês:", 
             min_value=1, max_value=total_meses, value=params['meses_pre'],
-            help="Define o limite de meses para aplicação da correção monetária na simulação parcial. Por exemplo: se colocar '24', a inflação só será aplicada nos primeiros 2 anos do financiamento."
+            help="Define o limite de meses para aplicação da correção monetária na simulação parcial. Por exemplo: si colocar '24', a inflação só será aplicada nos primeiros 2 anos do financiamento."
         )
         if st.button("Simular Parcial", 
                     help="Simula apenas parte do financiamento, aplicando correção monetária até o mês específico que você definir. Após esse mês, o saldo não será mais corrigido. Use para ver como ficaria seu financiamento se a correção parasse em determinado momento."):
