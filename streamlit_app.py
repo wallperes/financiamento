@@ -191,102 +191,92 @@ def simular_financiamento(params, valores_reais=None):
 # ============================================
 # INTEGRAÇÃO COM BANCO CENTRAL (SGS) - CORRIGIDA
 # ============================================
-
 def buscar_indices_bc(mes_inicial, meses_total):
     try:
         # Converter para objetos datetime
         data_inicio = datetime.strptime(mes_inicial, "%m/%Y").replace(day=1)
-        
-        # Calcular data final (mês inicial + total de meses)
         data_fim = data_inicio + relativedelta(months=meses_total)
         
         # Formatar datas para o padrão SGS
         start_str = data_inicio.strftime("%d/%m/%Y")
         end_str = data_fim.strftime("%d/%m/%Y")
 
-        # DEBUG: Mostrar datas usadas na consulta
-        st.write(f"🔍 Buscando dados do BC de {start_str} a {end_str}")
+        st.write("🔍 Parâmetros da busca:")
+        st.write(f"- Data inicial: {data_inicio.strftime('%d/%m/%Y')}")
+        st.write(f"- Data final: {data_fim.strftime('%d/%m/%Y')}")
+        st.write(f"- Total de meses: {meses_total}")
 
-        # Buscar dados diretamente com sgs.dataframe()
+        # Buscar dados do BC
         df = sgs.dataframe([192, 433], start=start_str, end=end_str)
         
-        # DEBUG: Mostrar dados brutos retornados
-        st.subheader("Dados Brutos do Banco Central")
-        st.write(f"Total de registros: {len(df)}")
-        st.write("Primeiros registros:")
-        st.dataframe(df.head(10))
-        st.write("Últimos registros:")
-        st.dataframe(df.tail(10))
-        
+        # Verificar se obteve resultados
         if df.empty:
-            st.warning("Nenhum dado encontrado para o período")
+            st.warning("⚠️ Nenhum dado retornado pelo Banco Central")
             return {}, 0
-
-        # Renomear colunas
-        df = df.rename(columns={192: 'incc', 433: 'ipca'})
         
-        # Converter para decimal (valores vêm como porcentagem)
+        st.write("✅ Dados obtidos com sucesso")
+        st.write(f"Total de registros: {len(df)}")
+        
+        # Mostrar estrutura dos dados
+        st.subheader("Estrutura dos Dados")
+        st.write("Primeiras 5 linhas:")
+        st.dataframe(df.head())
+        
+        st.write("Últimas 5 linhas:")
+        st.dataframe(df.tail())
+        
+        st.write("Informações do índice:")
+        st.write(f"Tipo do índice: {type(df.index)}")
+        st.write(f"Exemplo de valores do índice: {df.index[:5].values}")
+        
+        # Processar índices
+        df = df.rename(columns={192: 'incc', 433: 'ipca'})
         df['incc'] = df['incc'] / 100
         df['ipca'] = df['ipca'] / 100
-
-        # DEBUG: Mostrar estrutura do índice
-        st.write("Estrutura do índice:")
-        st.write(f"Tipo do índice: {type(df.index)}")
-        st.write(f"Exemplo de valores do índice: {df.index[:5].tolist()}")
-
-        # Criar dicionário por número de mês sequencial
+        
         indices = {}
         ultimo_mes_com_dado = 0
         current_date = data_inicio
         
+        st.subheader("Processamento Mês a Mês")
+        
         for mes in range(1, meses_total + 1):
-            # Tentar diferentes formatos de data para encontrar correspondência
-            date_formats = [
-                current_date.strftime("%Y-%m-%d"),  # Formato ISO
-                current_date.strftime("%d/%m/%Y"),  # Formato brasileiro
-                current_date.strftime("%m/%d/%Y"),  # Formato americano
-                pd.Timestamp(current_date),         # Objeto Timestamp
-                current_date                        # Objeto datetime
-            ]
+            # Criar timestamp no formato do índice
+            timestamp_alvo = pd.Timestamp(current_date)
+            st.write(f"\n\n**Mês {mes} ({current_date.strftime('%m/%Y')})**")
+            st.write(f"Timestamp alvo: {timestamp_alvo}")
             
-            found = False
-            for date_fmt in date_formats:
-                if date_fmt in df.index:
-                    row = df.loc[date_fmt]
-                    incc_val = row['incc'] if not pd.isna(row['incc']) else None
-                    ipca_val = row['ipca'] if not pd.isna(row['ipca']) else None
+            if timestamp_alvo in df.index:
+                st.write("✅ Encontrado no índice")
+                row = df.loc[timestamp_alvo]
+                
+                incc_val = row['incc'] if 'incc' in df.columns and not pd.isna(row['incc']) else None
+                ipca_val = row['ipca'] if 'ipca' in df.columns and not pd.isna(row['ipca']) else None
+                
+                st.write(f"Valores: INCC={incc_val}, IPCA={ipca_val}")
+                
+                if incc_val is not None or ipca_val is not None:
+                    ultimo_mes_com_dado = mes
+                    st.write(f"Atualizado último mês com dado: {ultimo_mes_com_dado}")
                     
-                    if incc_val is not None or ipca_val is not None:
-                        ultimo_mes_com_dado = mes
-                    
-                    indices[mes] = {'incc': incc_val, 'ipca': ipca_val}
-                    found = True
-                    st.write(f"✅ Mês {mes} ({current_date.strftime('%m/%Y')}) encontrado como {date_fmt}")
-                    break
-            
-            if not found:
+                indices[mes] = {'incc': incc_val, 'ipca': ipca_val}
+            else:
+                st.write("❌ Não encontrado no índice")
                 indices[mes] = {'incc': None, 'ipca': None}
-                st.write(f"⚠️ Mês {mes} ({current_date.strftime('%m/%Y')}) não encontrado no índice")
             
-            # Avançar para o próximo mês
             current_date += relativedelta(months=1)
 
-        st.subheader("Resultado do Processamento")
-        st.write(f"📊 Índices reais disponíveis até o mês {ultimo_mes_com_dado}")
-        
-        # Formatar e exibir dados capturados
-        st.write("Dados capturados:")
-        for mes, valores in indices.items():
-            st.write(f"Mês {mes}: INCC={valores['incc']}, IPCA={valores['ipca']}")
-
+        st.success(f"📊 Índices capturados até o mês {ultimo_mes_com_dado}")
         return indices, ultimo_mes_com_dado
         
     except Exception as e:
-        st.error(f"Erro ao acessar dados do BC: {str(e)}", icon="🚨")
-        st.info("Verifique: 1) Conexão com internet 2) Formato da data (MM/AAAA)")
+        st.error(f"🚨 Erro grave: {str(e)}")
+        st.write("Detalhes do erro:")
         import traceback
-        st.write(traceback.format_exc())  # Mostrar traceback completo
+        st.code(traceback.format_exc())
         return {}, 0
+
+
 # ============================================
 # INTERFACE STREAMLIT (CORRIGIDA)
 # ============================================
