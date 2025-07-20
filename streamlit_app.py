@@ -305,7 +305,7 @@ def criar_parametros():
     for i in range(4):
         col_sem1, col_sem2 = st.sidebar.columns(2)
         with col_sem1:
-            mes_sem = col_sem1.number_input(f"Mês {i+1}", min_value=0, value=6*(i+1) if i<2 else 0, key=f"sem_mes_{i}")
+            mes_sem = col_sem1.number_input(f"Semestral {i+1}", min_value=0, value=6*(i+1) if i<2 else 0, key=f"sem_mes_{i}")
         with col_sem2:
             valor_sem = col_sem2.number_input(f"Valor {i+1} (R$)", min_value=0.0, value=6000.0 if i==0 else 0.0, key=f"sem_val_{i}")
         if mes_sem > 0 and valor_sem > 0:
