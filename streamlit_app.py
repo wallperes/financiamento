@@ -179,68 +179,42 @@ def simular_financiamento(params, valores_reais=None):
     return pd.DataFrame(historico)
 
 # ============================================
-# INTEGRAÇÃO COM BANCO CENTRAL (SGS) - CORRIGIDA!
+# INTEGRAÇÃO SIMPLIFICADA COM BANCO CENTRAL (SGS)
 # ============================================
 
 def buscar_indices_bc(mes_inicial, meses_total):
     """
-    Busca índices INCC-M (192) e IPCA (433) do Banco Central usando SGS
-    com informações de depuração
+    Busca índices INCC-M (192) e IPCA (433) usando a abordagem direta da documentação
     """
     try:
         # Converter para objetos datetime
         data_inicio = datetime.strptime(mes_inicial, "%m/%Y").replace(day=1)
         data_fim = data_inicio + timedelta(days=meses_total * 31)
         
-        st.info(f"Buscando dados de {data_inicio.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}...")
+        # Formatar datas no padrão DD/MM/YYYY que o SGS espera
+        start_str = data_inicio.strftime("%d/%m/%Y")
+        end_str = data_fim.strftime("%d/%m/%Y")
         
-        # Buscar séries temporais usando SGS (INCC-M = 192)
-        ts_incc = sgs.time_serie(192, start=data_inicio, end=data_fim)  # INCC-M
-        ts_ipca = sgs.time_serie(433, start=data_inicio, end=data_fim)  # IPCA
+        # Buscar dados diretamente com sgs.dataframe()
+        df = sgs.dataframe([192, 433], start=start_str, end=end_str)
         
-        # Criar dataframes vazios para caso não haja dados
-        df_incc = pd.DataFrame(columns=['incc'])
-        df_ipca = pd.DataFrame(columns=['ipca'])
+        # Renomear colunas para facilitar
+        df = df.rename(columns={192: 'incc', 433: 'ipca'})
         
-        # Processar dados se existirem
-        if not ts_incc.empty:
-            df_incc = ts_incc.to_frame(name='incc').resample('M').last() / 100
-            st.success(f"Encontrados {len(df_incc)} valores de INCC")
-        else:
-            st.warning("Nenhum dado de INCC encontrado para o período")
-            
-        if not ts_ipca.empty:
-            df_ipca = ts_ipca.to_frame(name='ipca').resample('M').last() / 100
-            st.success(f"Encontrados {len(df_ipca)} valores de IPCA")
-        else:
-            st.warning("Nenhum dado de IPCA encontrado para o período")
-        
-        # Combina os dados
-        df_combined = pd.concat([df_incc, df_ipca], axis=1)
-        
-        # Exibir dados capturados para depuração
-        if not df_combined.empty:
-            st.subheader("Dados Capturados do Banco Central")
-            st.dataframe(df_combined.style.format({
-                'incc': '{:.4%}'.format,
-                'ipca': '{:.4%}'.format
-            }))
-        else:
-            st.warning("Nenhum dado combinado encontrado")
+        # Converter para decimal (valores vêm como porcentagem)
+        df['incc'] = df['incc'] / 100
+        df['ipca'] = df['ipca'] / 100
         
         # Criar dicionário por número de mês
         indices = {}
         current_date = data_inicio
         
         for mes in range(1, meses_total + 1):
-            # Formatar data como string para comparação
-            date_str = current_date.strftime("%Y-%m-01")
-            
             # Verificar se temos dados para este mês
-            if date_str in df_combined.index:
-                row = df_combined.loc[date_str]
-                incc_val = row['incc'] if 'incc' in row and not pd.isna(row['incc']) else None
-                ipca_val = row['ipca'] if 'ipca' in row and not pd.isna(row['ipca']) else None
+            if current_date in df.index:
+                row = df.loc[current_date]
+                incc_val = row['incc'] if not pd.isna(row['incc']) else None
+                ipca_val = row['ipca'] if not pd.isna(row['ipca']) else None
             else:
                 incc_val = None
                 ipca_val = None
@@ -248,35 +222,36 @@ def buscar_indices_bc(mes_inicial, meses_total):
             indices[mes] = {'incc': incc_val, 'ipca': ipca_val}
             
             # Avançar para o próximo mês
-            if current_date.month == 12:
-                current_date = current_date.replace(year=current_date.year + 1, month=1)
-            else:
-                current_date = current_date.replace(month=current_date.month + 1)
+            next_month = current_date.replace(day=28) + timedelta(days=4)
+            current_date = next_month.replace(day=1)
         
-        # Exibir resumo dos valores capturados
-        st.subheader("Valores por Mês na Simulação")
-        debug_df = pd.DataFrame.from_dict(indices, orient='index')
-        st.dataframe(debug_df.style.format({
-            'incc': '{:.4%}' if any(debug_df['incc'].notna()) else None,
-            'ipca': '{:.4%}' if any(debug_df['ipca'].notna()) else None
-        }))
+        # Depuração: mostrar dados capturados
+        st.subheader("Dados Capturados do Banco Central")
+        if not df.empty:
+            st.write(f"Período: {start_str} a {end_str}")
+            st.write(f"{len(df)} registros encontrados")
+            
+            # Mostrar primeiros e últimos registros
+            st.write("Primeiros registros:")
+            st.dataframe(df.head().style.format({
+                'incc': '{:.4%}',
+                'ipca': '{:.4%}'
+            }))
+            
+            st.write("Últimos registros:")
+            st.dataframe(df.tail().style.format({
+                'incc': '{:.4%}',
+                'ipca': '{:.4%}'
+            }))
+        else:
+            st.warning("Nenhum dado encontrado para o período")
         
-        # Contar quantos valores reais foram obtidos
-        valores_reais = sum(1 for v in indices.values() if v['incc'] is not None or v['ipca'] is not None)
-        st.success(f"Dados do BC processados: {valores_reais} meses com valores reais")
         return indices
         
     except Exception as e:
-        st.error(f"Erro ao acessar dados do BC: {str(e)}", icon="🚨")
-        st.info("""
-        Verifique:
-        1. Conexão com internet
-        2. Formato da data inicial (MM/AAAA)
-        3. Códigos das séries (INCC-M: 192, IPCA: 433)
-        4. Disponibilidade de dados no período
-        """)
+        st.error(f"Erro ao acessar dados do BC: {str(e)}")
+        st.info("Verifique: 1) Conexão com internet 2) Formato da data inicial (MM/AAAA)")
         return {}
-
 # ============================================
 # INTERFACE STREAMLIT
 # ============================================
