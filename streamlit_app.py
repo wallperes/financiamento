@@ -139,8 +139,22 @@ def simular_financiamento(params, valores_reais=None):
     parcelas_futuras = construir_parcelas_futuras(params)
     historico = []
     total_amortizado_pre = 0
+    
+    # Converter data inicial para objeto datetime
+    try:
+        data_inicial = datetime.strptime(params['mes_inicial'], "%m/%Y")
+    except:
+        st.error("Data inicial inválida! Use o formato MM/AAAA (ex: 04/2025)")
+        return pd.DataFrame()
+    
+    datas_formatadas = []
 
     for mes_atual in range(1, total_meses + 1):
+        # Calcular data correspondente ao mês atual
+        data_mes = data_inicial + relativedelta(months=mes_atual-1)
+        data_str = data_mes.strftime("%m/%Y")
+        datas_formatadas.append(f"{mes_atual} - [{data_str}]")
+        
         if mes_atual <= num_parcelas_entrada:
             fase = 'Entrada'
         elif mes_atual <= num_parcelas_entrada + params['meses_pre']:
@@ -189,7 +203,10 @@ def simular_financiamento(params, valores_reais=None):
         if fase == 'Pré' and mes_atual == num_parcelas_entrada + params['meses_pre']:
             verificar_quitacao_pre(params, total_amortizado_pre)
     
-    return pd.DataFrame(historico)
+    df_resultado = pd.DataFrame(historico)
+    # Adicionar coluna com datas formatadas
+    df_resultado['Mês/Data'] = datas_formatadas
+    return df_resultado
 
 # ============================================
 # INTEGRAÇÃO COM BANCO CENTRAL
@@ -348,12 +365,17 @@ def mostrar_resultados(df_resultado):
     Exibe resultados da simulação (sem gráficos)
     """
     st.subheader("Tabela de Simulação Detalhada")
-    colunas = ['Mês', 'Fase', 'Saldo Devedor', 'Ajuste INCC (R$)', 'Ajuste IPCA (R$)', 
+    
+    # Reordenar colunas para colocar Mês/Data primeiro
+    colunas = ['Mês/Data', 'Fase', 'Saldo Devedor', 'Ajuste INCC (R$)', 'Ajuste IPCA (R$)', 
                'Correção INCC ou IPCA diluída (R$)', 'Amortização Base', 'Juros (R$)', 'Parcela Total']
     
     df_display = df_resultado[colunas].copy()
+    
+    # Formatar colunas numéricas
     for col in colunas[2:]:
         df_display[col] = df_display[col].apply(format_currency)
+    
     st.dataframe(df_display)
 
 def main():
