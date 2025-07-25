@@ -227,12 +227,12 @@ def buscar_indices_bc(mes_inicial, meses_total):
         start_str = data_inicio.strftime("%d/%m/%Y")
         end_str = data_fim.strftime("%d/%m/%Y")
 
-        df = sgs.dataframe([7456, 433], start=start_str, end=end_str)
+        df = sgs.dataframe([192, 433], start=start_str, end=end_str)
         
         if df.empty:
             return {}, 0, pd.DataFrame()
         
-        df = df.rename(columns={7456: 'incc', 433: 'ipca'})
+        df = df.rename(columns={192: 'incc', 433: 'ipca'})
         df['incc'] = df['incc'] / 100
         df['ipca'] = df['ipca'] / 100
         
