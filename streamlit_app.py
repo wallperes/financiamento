@@ -140,7 +140,8 @@ def simular_financiamento(params, valores_reais=None):
     historico = []
     total_amortizado_pre = 0
     
-    # Converter data inicial para objeto datetime
+    mes_pos_chaves_contador = 0
+    
     try:
         data_inicial = datetime.strptime(params['mes_inicial'], "%m/%Y")
     except:
@@ -150,7 +151,6 @@ def simular_financiamento(params, valores_reais=None):
     datas_formatadas = []
 
     for mes_atual in range(1, total_meses + 1):
-        # Calcular data correspondente ao mês atual
         data_mes = data_inicial + relativedelta(months=mes_atual-1)
         data_str = data_mes.strftime("%m/%Y")
         datas_formatadas.append(f"{mes_atual} - [{data_str}]")
@@ -164,13 +164,10 @@ def simular_financiamento(params, valores_reais=None):
         
         saldo_inicial = saldo_devedor
         
-        # 1. Pagar as parcelas do mês atual
         pagamento, amortizacao, correcao_paga = processar_parcelas_vencidas(parcelas_futuras, mes_atual)
         
-        # CORREÇÃO: Descontar a correção paga do saldo devedor
         saldo_devedor -= (amortizacao + correcao_paga)
         
-        # 2. Calcular a correção sobre o saldo remanescente APÓS o pagamento
         correcao_mes = calcular_correcao(
             saldo_devedor, 
             mes_atual, 
@@ -179,22 +176,24 @@ def simular_financiamento(params, valores_reais=None):
             valores_reais
         )
         
-        # 3. Aplicar a correção ao saldo devedor
         saldo_devedor += correcao_mes
         
-        # 4. Diluir a correção para TODOS os meses futuros
         if parcelas_futuras and correcao_mes != 0:
             total_original = sum(p['valor_original'] for p in parcelas_futuras)
             if total_original > 0:
                 for p in parcelas_futuras:
                     p['correcao_acumulada'] += correcao_mes * (p['valor_original'] / total_original)
         
-        juros_mes = saldo_inicial * params['juros_mensal'] if fase == 'Pós' else 0
+        taxa_juros_mes = 0.0
+        juros_mes = 0.0
+        if fase == 'Pós':
+            mes_pos_chaves_contador += 1
+            taxa_juros_mes = mes_pos_chaves_contador / 100.0
+            juros_mes = saldo_inicial * taxa_juros_mes
         
         if fase == 'Pré':
             total_amortizado_pre += amortizacao
         
-        # Garantir que o saldo não fique negativo
         saldo_devedor = max(saldo_devedor, 0)
         
         historico.append({
@@ -204,6 +203,7 @@ def simular_financiamento(params, valores_reais=None):
             'Parcela Total': pagamento + juros_mes,
             'Amortização Base': amortizacao,
             'Correção INCC ou IPCA diluída (R$)': correcao_paga,
+            'Taxa de Juros (%)': taxa_juros_mes,
             'Juros (R$)': juros_mes,
             'Ajuste INCC (R$)': correcao_mes if fase in ['Entrada','Pré'] else 0,
             'Ajuste IPCA (R$)': correcao_mes if fase == 'Pós' else 0
@@ -213,19 +213,30 @@ def simular_financiamento(params, valores_reais=None):
             verificar_quitacao_pre(params, total_amortizado_pre)
     
     df_resultado = pd.DataFrame(historico)
-    # Adicionar coluna com datas formatadas
     df_resultado['Mês/Data'] = datas_formatadas
     return df_resultado
 
 # ============================================
 # INTEGRAÇÃO COM BANCO CENTRAL
 # ============================================
+
 def buscar_indices_bc(mes_inicial, meses_total):
+    """
+    >>> FUNÇÃO ALTERADA PARA USAR LÓGICA M-2 <<<
+    Busca os índices no BC considerando a defasagem de 2 meses (M-2).
+    A correção da parcela do mês M usa o índice de M-2.
+    """
     try:
-        data_inicio = datetime.strptime(mes_inicial, "%m/%Y").replace(day=1)
-        data_fim = data_inicio + relativedelta(months=meses_total)
-        start_str = data_inicio.strftime("%d/%m/%Y")
-        end_str = data_fim.strftime("%d/%m/%Y")
+        # A data de início da simulação
+        data_inicio_simulacao = datetime.strptime(mes_inicial, "%m/%Y").replace(day=1)
+        # Para buscar o índice M-2 da primeira parcela, precisamos começar a busca 2 meses antes
+        data_inicio_busca = data_inicio_simulacao - relativedelta(months=2)
+        
+        # A data final da busca continua sendo o final da simulação
+        data_fim_busca = data_inicio_simulacao + relativedelta(months=meses_total)
+        
+        start_str = data_inicio_busca.strftime("%d/%m/%Y")
+        end_str = data_fim_busca.strftime("%d/%m/%Y")
 
         df = sgs.dataframe([192, 433], start=start_str, end=end_str)
         
@@ -238,32 +249,37 @@ def buscar_indices_bc(mes_inicial, meses_total):
         
         indices = {}
         ultimo_mes_com_dado = 0
-        current_date = data_inicio
-        dados_por_data = {}
         
+        # Cria um dicionário para busca rápida dos dados por data
+        dados_por_data = {}
         for idx, row in df.iterrows():
             data_str = idx.strftime("%Y-%m-%d")
-            dados_por_data[data_str] = {
-                'incc': row['incc'],
-                'ipca': row['ipca']
-            }
+            dados_por_data[data_str] = {'incc': row['incc'], 'ipca': row['ipca']}
         
+        # Itera sobre os meses da SIMULAÇÃO
+        current_date_simulacao = data_inicio_simulacao
         for mes in range(1, meses_total + 1):
-            data_str = current_date.strftime("%Y-%m-%d")
+            # A data de referência para o índice é 2 meses ANTES da data da parcela
+            data_referencia_indice = current_date_simulacao - relativedelta(months=2)
+            data_referencia_str = data_referencia_indice.strftime("%Y-%m-%d")
             
-            if data_str in dados_por_data:
-                valores = dados_por_data[data_str]
+            # Busca o dado da data de referência (M-2)
+            if data_referencia_str in dados_por_data:
+                valores = dados_por_data[data_referencia_str]
                 incc_val = valores['incc']
                 ipca_val = valores['ipca']
                 
+                # Se encontrou um dado real para o M-2, marca o mês atual da simulação como válido
                 if incc_val is not None or ipca_val is not None:
                     ultimo_mes_com_dado = mes
                     
+                # Associa o índice de M-2 ao mês M da simulação
                 indices[mes] = {'incc': incc_val, 'ipca': ipca_val}
             else:
                 indices[mes] = {'incc': None, 'ipca': None}
             
-            current_date += relativedelta(months=1)
+            # Avança para o próximo mês da simulação
+            current_date_simulacao += relativedelta(months=1)
 
         # Formatar dataframe para exibição
         df_display = df.copy()
@@ -279,8 +295,9 @@ def buscar_indices_bc(mes_inicial, meses_total):
         st.info("Verifique: 1) Conexão com internet 2) Formato da data (MM/AAAA)")
         return {}, 0, pd.DataFrame()
 
+
 # ============================================
-# INTERFACE STREAMLIT (ATUALIZADA)
+# INTERFACE STREAMLIT (SEM ALTERAÇÕES)
 # ============================================
 
 def criar_parametros():
@@ -299,11 +316,9 @@ def criar_parametros():
                                                       help="Número de meses em que a entrada será parcelada"),
     }
     
-    # Inicializar dicionários vazios para parcelas extras
     params['parcelas_semestrais'] = {}
     params['parcelas_anuais'] = {}
     
-    # Grupo de campos para fases pré e pós
     st.sidebar.subheader("Fases de Pagamento")
     col1, col2 = st.sidebar.columns(2)
     
@@ -322,10 +337,8 @@ def criar_parametros():
         params['valor_amortizacao_pos'] = col4.number_input("Valor parcela pós (R$)", value=3104.62,
                                                            help="Valor mensal durante a fase pós-chaves")
     
-    # Parcelas extras (até 4 semestrais)
     st.sidebar.subheader("Parcelas Extras")
     
-    # Parcelas Semestrais (até 4)
     st.sidebar.write("Parcelas Semestrais:")
     semestrais = []
     for i in range(4):
@@ -337,12 +350,10 @@ def criar_parametros():
         if mes_sem > 0 and valor_sem > 0:
             semestrais.append((mes_sem, valor_sem))
     
-    # Adicionar todas as semestrais ao dicionário
     for mes, valor in semestrais:
         if mes > 0 and valor > 0:
             params['parcelas_semestrais'][int(mes)] = valor
 
-    # Parcelas Anuais
     st.sidebar.write("Parcelas Anuais:")
     col_anu1, col_anu2 = st.sidebar.columns(2)
     with col_anu1:
@@ -352,16 +363,14 @@ def criar_parametros():
     if mes_anu > 0 and valor_anu > 0:
         params['parcelas_anuais'][int(mes_anu)] = valor_anu
 
-    # Parâmetros de correção (última seção)
     st.sidebar.subheader("Parâmetros de Correção")
     params['incc_medio'] = st.sidebar.number_input("INCC médio mensal", value=0.00544640781, step=0.0001, format="%.4f",
                                                  help="Taxa média mensal de correção pelo INCC (usada na fase pré-chaves)")
     params['ipca_medio'] = st.sidebar.number_input("IPCA médio mensal", value=0.00466933642, step=0.0001, format="%.4f",
                                                  help="Taxa média mensal de correção pelo IPCA (usada na fase pós-chaves)")
-    params['juros_mensal'] = st.sidebar.number_input("Juros mensal", value=0.01, step=0.001, format="%.3f",
-                                                   help="Taxa de juros mensal aplicada na fase pós-chaves")
+    st.sidebar.number_input("Juros mensal (FIXO - NÃO USADO)", value=0.01, step=0.001, format="%.3f",
+                                                   help="Este campo não é mais usado para o cálculo progressivo. A taxa agora é 1% no Mês 1 Pós, 2% no Mês 2 Pós, etc.")
     
-    # Calcular valor mensal da entrada
     params['entrada_mensal'] = params['valor_entrada'] / params['num_parcelas_entrada']
     
     params['percentual_minimo_quitacao'] = 0.3
@@ -375,7 +384,6 @@ def mostrar_resultados(df_resultado):
     """
     st.subheader("Tabela de Simulação Detalhada")
     
-    # Definir ordem e seleção de colunas para visualização e exportação
     colunas = [
         'Mês/Data', 
         'Fase', 
@@ -384,52 +392,41 @@ def mostrar_resultados(df_resultado):
         'Ajuste IPCA (R$)', 
         'Correção INCC ou IPCA diluída (R$)', 
         'Amortização Base', 
+        'Taxa de Juros (%)',
         'Juros (R$)', 
         'Parcela Total'
     ]
     
-    # Criar DataFrame para visualização (com formatação)
     df_display = df_resultado[colunas].copy()
     
-    # Formatar colunas numéricas para visualização
-    for col in colunas[2:]:
+    for col in ['Saldo Devedor', 'Ajuste INCC (R$)', 'Ajuste IPCA (R$)', 'Correção INCC ou IPCA diluída (R$)', 'Amortização Base', 'Juros (R$)', 'Parcela Total']:
         df_display[col] = df_display[col].apply(format_currency)
+    
+    df_display['Taxa de Juros (%)'] = df_resultado['Taxa de Juros (%)'].apply(
+        lambda x: f"{x:.2%}" if x > 0 else "N/A"
+    )
     
     st.dataframe(df_display)
     
-    # Armazenar DataFrame para exportação (sem formatação, mesmo conjunto de colunas)
     st.session_state.df_export = df_resultado[colunas].copy()
 
 def main():
-    # =====================================
-    # FORÇAR A BARRA LATERAL A FICAR ABERTA
-    # =====================================
     st.markdown(
         """
         <style>
-            /* Ocultar o botão de hambúrguer */
-            div[data-testid="collapsedControl"] {
-                display: none;
-            }
-            
-            /* Forçar a barra lateral a ficar sempre visível */
+            div[data-testid="collapsedControl"] { display: none; }
             section[data-testid="stSidebar"] {
                 width: 400px !important;
                 min-width: 400px !important;
             }
-            
-            /* Ajustar o conteúdo principal */
             div[data-testid="stAppViewContainer"] > div:first-child {
                 margin-left: 400px;
             }
-            
-            /* Ajustes para dispositivos móveis */
             @media (max-width: 768px) {
                 section[data-testid="stSidebar"] {
                     width: 300px !important;
                     min-width: 300px !important;
                 }
-                
                 div[data-testid="stAppViewContainer"] > div:first-child {
                     margin-left: 300px;
                 }
@@ -441,15 +438,12 @@ def main():
     
     st.title("Simulador/Estimativa de Financiamento Imobiliário 🚧🏠")
     
-    # Inicializar variáveis de sessão
     if 'df_indices' not in st.session_state:
         st.session_state.df_indices = None
     
-    # Carregar parâmetros
     params = criar_parametros()
     total_meses = params['num_parcelas_entrada'] + params['meses_pre'] + params['meses_pos']
     
-    # Botões de simulação
     col1, col2, col3 = st.columns(3)
     valores_reais = None
 
@@ -482,11 +476,9 @@ def main():
             st.session_state.df_indices = df_indices
             st.info(f"⚠️ Correção aplicada apenas até o mês {ultimo_mes_com_dado} (dados reais disponíveis)")
 
-    # Exibir resultados
     if 'df_resultado' in st.session_state:
         mostrar_resultados(st.session_state.df_resultado)
         
-        # Botão de download da planilha (usando o mesmo DataFrame formatado)
         if 'df_export' in st.session_state:
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
