@@ -164,10 +164,13 @@ def simular_financiamento(params, valores_reais=None):
         
         saldo_inicial = saldo_devedor
         
+        # 1. Pagar as parcelas do mês atual (retorna amortização e correção paga)
         pagamento, amortizacao, correcao_paga = processar_parcelas_vencidas(parcelas_futuras, mes_atual)
         
+        # 2. Abater o que foi pago do saldo devedor
         saldo_devedor -= (amortizacao + correcao_paga)
         
+        # 3. Calcular a correção (INCC/IPCA) sobre o saldo remanescente
         correcao_mes = calcular_correcao(
             saldo_devedor, 
             mes_atual, 
@@ -176,20 +179,26 @@ def simular_financiamento(params, valores_reais=None):
             valores_reais
         )
         
+        # 4. Aplicar a correção ao saldo devedor
         saldo_devedor += correcao_mes
         
+        # 5. Diluir a correção para TODOS os meses futuros
         if parcelas_futuras and correcao_mes != 0:
             total_original = sum(p['valor_original'] for p in parcelas_futuras)
             if total_original > 0:
                 for p in parcelas_futuras:
                     p['correcao_acumulada'] += correcao_mes * (p['valor_original'] / total_original)
         
+        # 6. >>> ALTERAÇÃO FINAL: Lógica de juros sobre a parcela corrigida <<<
         taxa_juros_mes = 0.0
         juros_mes = 0.0
         if fase == 'Pós':
             mes_pos_chaves_contador += 1
             taxa_juros_mes = mes_pos_chaves_contador / 100.0
-            juros_mes = saldo_inicial * taxa_juros_mes
+            
+            # A base para o juros é a parcela do mês (amortização + correção que veio nela)
+            parcela_corrigida_base = amortizacao + correcao_paga
+            juros_mes = parcela_corrigida_base * taxa_juros_mes
         
         if fase == 'Pré':
             total_amortizado_pre += amortizacao
@@ -200,6 +209,7 @@ def simular_financiamento(params, valores_reais=None):
             'Mês': mes_atual,
             'Fase': fase,
             'Saldo Devedor': saldo_devedor,
+            # Parcela total é a parcela base corrigida + os juros calculados sobre ela
             'Parcela Total': pagamento + juros_mes,
             'Amortização Base': amortizacao,
             'Correção INCC ou IPCA diluída (R$)': correcao_paga,
@@ -217,22 +227,16 @@ def simular_financiamento(params, valores_reais=None):
     return df_resultado
 
 # ============================================
-# INTEGRAÇÃO COM BANCO CENTRAL
+# INTEGRAÇÃO COM BANCO CENTRAL (LÓGICA M-2)
 # ============================================
 
 def buscar_indices_bc(mes_inicial, meses_total):
     """
-    >>> FUNÇÃO ALTERADA PARA USAR LÓGICA M-2 <<<
     Busca os índices no BC considerando a defasagem de 2 meses (M-2).
-    A correção da parcela do mês M usa o índice de M-2.
     """
     try:
-        # A data de início da simulação
         data_inicio_simulacao = datetime.strptime(mes_inicial, "%m/%Y").replace(day=1)
-        # Para buscar o índice M-2 da primeira parcela, precisamos começar a busca 2 meses antes
         data_inicio_busca = data_inicio_simulacao - relativedelta(months=2)
-        
-        # A data final da busca continua sendo o final da simulação
         data_fim_busca = data_inicio_simulacao + relativedelta(months=meses_total)
         
         start_str = data_inicio_busca.strftime("%d/%m/%Y")
@@ -250,38 +254,30 @@ def buscar_indices_bc(mes_inicial, meses_total):
         indices = {}
         ultimo_mes_com_dado = 0
         
-        # Cria um dicionário para busca rápida dos dados por data
         dados_por_data = {}
         for idx, row in df.iterrows():
             data_str = idx.strftime("%Y-%m-%d")
             dados_por_data[data_str] = {'incc': row['incc'], 'ipca': row['ipca']}
         
-        # Itera sobre os meses da SIMULAÇÃO
         current_date_simulacao = data_inicio_simulacao
         for mes in range(1, meses_total + 1):
-            # A data de referência para o índice é 2 meses ANTES da data da parcela
             data_referencia_indice = current_date_simulacao - relativedelta(months=2)
             data_referencia_str = data_referencia_indice.strftime("%Y-%m-%d")
             
-            # Busca o dado da data de referência (M-2)
             if data_referencia_str in dados_por_data:
                 valores = dados_por_data[data_referencia_str]
                 incc_val = valores['incc']
                 ipca_val = valores['ipca']
                 
-                # Se encontrou um dado real para o M-2, marca o mês atual da simulação como válido
                 if incc_val is not None or ipca_val is not None:
                     ultimo_mes_com_dado = mes
                     
-                # Associa o índice de M-2 ao mês M da simulação
                 indices[mes] = {'incc': incc_val, 'ipca': ipca_val}
             else:
                 indices[mes] = {'incc': None, 'ipca': None}
             
-            # Avança para o próximo mês da simulação
             current_date_simulacao += relativedelta(months=1)
 
-        # Formatar dataframe para exibição
         df_display = df.copy()
         df_display.index = df_display.index.strftime('%b/%Y')
         df_display = df_display.rename_axis('Data')
@@ -369,7 +365,7 @@ def criar_parametros():
     params['ipca_medio'] = st.sidebar.number_input("IPCA médio mensal", value=0.00466933642, step=0.0001, format="%.4f",
                                                  help="Taxa média mensal de correção pelo IPCA (usada na fase pós-chaves)")
     st.sidebar.number_input("Juros mensal (FIXO - NÃO USADO)", value=0.01, step=0.001, format="%.3f",
-                                                   help="Este campo não é mais usado para o cálculo progressivo. A taxa agora é 1% no Mês 1 Pós, 2% no Mês 2 Pós, etc.")
+                                                   help="Este campo não é mais usado. A taxa de juros agora é progressiva e calculada sobre a parcela corrigida na fase pós-chaves.")
     
     params['entrada_mensal'] = params['valor_entrada'] / params['num_parcelas_entrada']
     
