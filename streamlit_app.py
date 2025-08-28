@@ -63,7 +63,7 @@ def construir_parcelas_futuras(params):
     
     # Fase Pós-chaves
     for mes in range(num_parcelas_entrada + 1 + params['meses_pre'], 
-                    num_parcelas_entrada + 1 + params['meses_pre'] + params['meses_pos']):
+                     num_parcelas_entrada + 1 + params['meses_pre'] + params['meses_pos']):
         parcelas.append({
             'mes': mes,
             'valor_original': params['valor_amortizacao_pos'],
@@ -75,8 +75,12 @@ def construir_parcelas_futuras(params):
 
 def calcular_correcao(saldo, mes, fase, params, valores_reais):
     """
-    Calcula correção monetária
+    Calcula correção monetária, respeitando o mês de início definido pelo usuário.
     """
+    # >>> ALTERAÇÃO: Verifica se o mês atual é anterior ao início da correção
+    if mes < params.get('inicio_correcao', 1):
+        return 0
+        
     limite = params.get('limite_correcao')
     if limite is not None and mes > limite:
         return 0
@@ -126,7 +130,7 @@ def verificar_quitacao_pre(params, total_amortizado):
         st.warning(f"Atenção: valor quitado na pré ({valor_fmt}) equivale a {percentual*100:.2f}% do valor do imóvel, abaixo de {params['percentual_minimo_quitacao']*100:.0f}%.")
 
 # ============================================
-# LÓGICA PRINCIPAL DE SIMULAÇÃO (CORREÇÃO FINAL)
+# LÓGICA PRINCIPAL DE SIMULAÇÃO
 # ============================================
 
 def simular_financiamento(params, valores_reais=None):
@@ -189,7 +193,7 @@ def simular_financiamento(params, valores_reais=None):
                 for p in parcelas_futuras:
                     p['correcao_acumulada'] += correcao_mes * (p['valor_original'] / total_original)
         
-        # 6. >>> ALTERAÇÃO FINAL: Lógica de juros sobre a parcela corrigida <<<
+        # 6. Lógica de juros sobre a parcela corrigida
         taxa_juros_mes = 0.0
         juros_mes = 0.0
         if fase == 'Pós':
@@ -209,7 +213,6 @@ def simular_financiamento(params, valores_reais=None):
             'Mês': mes_atual,
             'Fase': fase,
             'Saldo Devedor': saldo_devedor,
-            # Parcela total é a parcela base corrigida + os juros calculados sobre ela
             'Parcela Total': pagamento + juros_mes,
             'Amortização Base': amortizacao,
             'Correção INCC ou IPCA diluída (R$)': correcao_paga,
@@ -293,7 +296,7 @@ def buscar_indices_bc(mes_inicial, meses_total):
 
 
 # ============================================
-# INTERFACE STREAMLIT (SEM ALTERAÇÕES)
+# INTERFACE STREAMLIT
 # ============================================
 
 def criar_parametros():
@@ -303,13 +306,13 @@ def criar_parametros():
     st.sidebar.header("Parâmetros Gerais")
     params = {
         'mes_inicial': st.sidebar.text_input("Mês inicial (MM/AAAA)", value="04/2025",
-                                            help="Mês de início do financiamento"),
+                                             help="Mês de início do financiamento"),
         'valor_total_imovel': st.sidebar.number_input("Valor total do imóvel", value=455750.0,
-                                                    help="Valor total do imóvel a ser financiado."),
+                                                      help="Valor total do imóvel a ser financiado."),
         'valor_entrada': st.sidebar.number_input("Valor de entrada", value=22270.54,
-                                               help="Valor total de entrada pago pelo comprador"),
+                                                 help="Valor total de entrada pago pelo comprador"),
         'num_parcelas_entrada': st.sidebar.number_input("Número de parcelas da entrada", min_value=1, value=3, step=1,
-                                                      help="Número de meses em que a entrada será parcelada"),
+                                                        help="Número de meses em que a entrada será parcelada"),
     }
     
     params['parcelas_semestrais'] = {}
@@ -320,18 +323,18 @@ def criar_parametros():
     
     with col1:
         params['meses_pre'] = col1.number_input("Meses pré-chaves", value=17,
-                                              help="Quantidade de meses da fase pré-chaves (durante a obra)")
+                                                help="Quantidade de meses da fase pré-chaves (durante a obra)")
     with col2:
         params['meses_pos'] = col2.number_input("Meses pós-chaves", value=100,
-                                               help="Quantidade de meses da fase pós-chaves (após a entrega das chaves)")
+                                                 help="Quantidade de meses da fase pós-chaves (após a entrega das chaves)")
     
     col3, col4 = st.sidebar.columns(2)
     with col3:
         params['parcelas_mensais_pre'] = col3.number_input("Valor parcela pré (R$)", value=3983.38,
-                                                          help="Valor mensal durante a fase pré-chaves")
+                                                           help="Valor mensal durante a fase pré-chaves")
     with col4:
         params['valor_amortizacao_pos'] = col4.number_input("Valor parcela pós (R$)", value=3104.62,
-                                                           help="Valor mensal durante a fase pós-chaves")
+                                                            help="Valor mensal durante a fase pós-chaves")
     
     st.sidebar.subheader("Parcelas Extras")
     
@@ -360,12 +363,20 @@ def criar_parametros():
         params['parcelas_anuais'][int(mes_anu)] = valor_anu
 
     st.sidebar.subheader("Parâmetros de Correção")
+    # >>> ALTERAÇÃO: Novo campo para o usuário definir o início da correção
+    params['inicio_correcao'] = st.sidebar.number_input(
+        "Mês de início da correção", 
+        min_value=1, 
+        value=4, 
+        step=1,
+        help="A partir de qual mês (nº da parcela) a correção (INCC/IPCA) deve começar a ser aplicada. Ex: 4 para começar na 4ª parcela."
+    )
     params['incc_medio'] = st.sidebar.number_input("INCC médio mensal", value=0.00544640781, step=0.0001, format="%.4f",
-                                                 help="Taxa média mensal de correção pelo INCC (usada na fase pré-chaves)")
+                                                   help="Taxa média mensal de correção pelo INCC (usada na fase pré-chaves)")
     params['ipca_medio'] = st.sidebar.number_input("IPCA médio mensal", value=0.00466933642, step=0.0001, format="%.4f",
-                                                 help="Taxa média mensal de correção pelo IPCA (usada na fase pós-chaves)")
+                                                   help="Taxa média mensal de correção pelo IPCA (usada na fase pós-chaves)")
     st.sidebar.number_input("Juros mensal (FIXO - NÃO USADO)", value=0.01, step=0.001, format="%.3f",
-                                                   help="Este campo não é mais usado. A taxa de juros agora é progressiva e calculada sobre a parcela corrigida na fase pós-chaves.")
+                                     help="Este campo não é mais usado. A taxa de juros agora é progressiva e calculada sobre a parcela corrigida na fase pós-chaves.")
     
     params['entrada_mensal'] = params['valor_entrada'] / params['num_parcelas_entrada']
     
@@ -432,7 +443,7 @@ def main():
         unsafe_allow_html=True
     )
     
-    st.title("Simulador/Estimativa de Financiamento Imobiliário 🚧🏠")
+    st.title("Simulador/Estimativa de Financiamento Imobiliário 🚧�")
     
     if 'df_indices' not in st.session_state:
         st.session_state.df_indices = None
@@ -445,7 +456,7 @@ def main():
 
     with col1:
         if st.button("Simular com Parâmetros Médios", 
-                    help="Usa taxas médias de inflação (INCC e IPCA) para todo o período do financiamento. Mostra uma projeção completa baseada nas estimativas fornecidas nos campos de 'INCC médio mensal' e 'IPCA médio mensal'. Ideal para ter uma visão geral do financiamento."):
+                     help="Usa taxas médias de inflação (INCC e IPCA) para todo o período do financiamento. Mostra uma projeção completa baseada nas estimativas fornecidas nos campos de 'INCC médio mensal' e 'IPCA médio mensal'. Ideal para ter uma visão geral do financiamento."):
             params_sim = params.copy()
             params_sim['limite_correcao'] = None
             st.session_state.df_resultado = simular_financiamento(params_sim)
@@ -453,18 +464,18 @@ def main():
     with col2:
         limite_correcao = st.number_input(
             "Aplicar correção até o mês:", 
-            min_value=1, max_value=total_meses, value=params['meses_pre'],
+            min_value=1, max_value=total_meses, value=params['meses_pre'] + params['num_parcelas_entrada'],
             help="Define o limite de meses para aplicação da correção monetária na simulação parcial. Por exemplo: se colocar '24', a inflação só será aplicada nos primeiros 2 anos do financiamento."
         )
         if st.button("Simular Parcial", 
-                    help="Simula apenas parte do financiamento, aplicando correção monetária até o mês específico que você definir. Após esse mês, o saldo não será mais corrigido. Use para ver como ficaria seu financiamento se a correção parasse em determinado momento."):
+                     help="Simula apenas parte do financiamento, aplicando correção monetária até o mês específico que você definir. Após esse mês, o saldo não será mais corrigido. Use para ver como ficaria seu financiamento se a correção parasse em determinado momento."):
             params_sim = params.copy()
             params_sim['limite_correcao'] = limite_correcao
             st.session_state.df_resultado = simular_financiamento(params_sim)
 
     with col3:
         if st.button("Simular com Valores Reais", 
-                    help="Busca automaticamente as taxas de inflação reais (INCC e IPCA) registradas pelo Banco Central. A correção será aplicada apenas até o último mês com dados disponíveis. Requer conexão com internet e mostra valores oficiais históricos."):
+                     help="Busca automaticamente as taxas de inflação reais (INCC e IPCA) registradas pelo Banco Central. A correção será aplicada apenas até o último mês com dados disponíveis. Requer conexão com internet e mostra valores oficiais históricos."):
             valores_reais, ultimo_mes_com_dado, df_indices = buscar_indices_bc(params['mes_inicial'], total_meses)
             params_sim = params.copy()
             params_sim['limite_correcao'] = ultimo_mes_com_dado
@@ -488,3 +499,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+�
