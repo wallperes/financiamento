@@ -366,7 +366,7 @@ def criar_parametros():
     # >>> ALTERAÇÃO: Novo campo para o usuário definir o início da correção
     params['inicio_correcao'] = st.sidebar.number_input(
         "Mês de início da correção", 
-        min_value=1, 
+        min_value=0, 
         value=4, 
         step=1,
         help="A partir de qual mês (nº da parcela) a correção (INCC/IPCA) deve começar a ser aplicada. Ex: 4 para começar na 4ª parcela."
