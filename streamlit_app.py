@@ -9,11 +9,13 @@ from dateutil.relativedelta import relativedelta
 # ============================================
 # UTILITÁRIAS
 # ============================================
+
 def format_currency(value):
     """Formata valores no padrão brasileiro R$"""
     if pd.isna(value) or not isinstance(value, (int, float)):
         return "R$ 0,00"
     return f"R$ {value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
 
 def converter_juros_anual_para_mensal(taxa_anual):
     """Converte taxa anual (ex: 0.12) para taxa efetiva mensal."""
@@ -24,59 +26,54 @@ def converter_juros_anual_para_mensal(taxa_anual):
 # ============================================
 # LÓGICA DA CONSTRUTORA (MANTIDA)
 # ============================================
+
 def construir_parcelas_futuras(params):
     parcelas = []
     num_parcelas_entrada = params['num_parcelas_entrada'] if params['tipo_pagamento_entrada'] == 'Parcelada' else 0
-
+    
     for mes in range(1, num_parcelas_entrada + 1):
         parcelas.append({'mes': mes, 'valor_original': params['entrada_mensal'], 'correcao_acumulada': 0.0, 'tipo': 'entrada'})
-
+    
     for mes in range(num_parcelas_entrada + 1, num_parcelas_entrada + 1 + params['meses_pre']):
         valor_parcela = params['parcelas_mensais_pre']
         mes_local = mes - num_parcelas_entrada
         for sem_mes in params['parcelas_semestrais']:
-            if mes_local == sem_mes:
-                valor_parcela += params['parcelas_semestrais'][sem_mes]
+            if mes_local == sem_mes: valor_parcela += params['parcelas_semestrais'][sem_mes]
         for anu_mes in params['parcelas_anuais']:
-            if mes_local == anu_mes:
-                valor_parcela += params['parcelas_anuais'][anu_mes]
+            if mes_local == anu_mes: valor_parcela += params['parcelas_anuais'][anu_mes]
         if valor_parcela > 0:
             parcelas.append({'mes': mes, 'valor_original': valor_parcela, 'correcao_acumulada': 0.0, 'tipo': 'pre'})
-
-    for mes in range(num_parcelas_entrada + 1 + params['meses_pre'],
-                      num_parcelas_entrada + 1 + params['meses_pre'] + params['meses_pos']):
+            
+    for mes in range(num_parcelas_entrada + 1 + params['meses_pre'], num_parcelas_entrada + 1 + params['meses_pre'] + params['meses_pos']):
         parcelas.append({'mes': mes, 'valor_original': params['valor_amortizacao_pos'], 'correcao_acumulada': 0.0, 'tipo': 'pos'})
-
+        
     return parcelas
+
 
 def calcular_correcao(saldo, mes, fase, params, valores_reais):
     # Regra de início de correção
     if fase not in ['Assinatura', 'Carência']:
         inicio_correcao = params.get('inicio_correcao', 1)
-        if inicio_correcao == 0:
-            inicio_correcao = 1
-        if mes < inicio_correcao:
-            return 0
+        if inicio_correcao == 0: inicio_correcao = 1
+        if mes < inicio_correcao: return 0
 
     # Limite manual (opcional)
     limite = params.get('limite_correcao')
-    if limite is not None and mes > limite:
-        return 0
+    if limite is not None and mes > limite: return 0
 
-    # Usa valores reais se disponíveis (valores_reais[mes] = {'incc':..., 'ipca':..., 'tr':...})
+    # Se houver séries reais fornecidas (valores_reais[mes] = {'incc':..., 'ipca':..., 'tr':...})
     if valores_reais is not None and mes in valores_reais:
         idx = valores_reais[mes]
-        if fase in ['Entrada', 'Pré', 'Carência'] and idx.get('incc') is not None and pd.notna(idx.get('incc')):
+        if fase in ['Entrada','Pré', 'Carência'] and idx.get('incc') is not None and pd.notna(idx.get('incc')):
             return saldo * idx['incc']
         elif fase == 'Pós' and idx.get('ipca') is not None and pd.notna(idx.get('ipca')):
             return saldo * idx['ipca']
 
-    # fallback para médias
-    if fase in ['Entrada', 'Pré', 'Carência']:
-        return saldo * params.get('incc_medio', 0)
-    elif fase == 'Pós':
-        return saldo * params.get('ipca_medio', 0)
+    # fallbacks para médias
+    if fase in ['Entrada','Pré', 'Carência']: return saldo * params.get('incc_medio', 0)
+    elif fase == 'Pós': return saldo * params.get('ipca_medio', 0)
     return 0
+
 
 def processar_parcelas_vencidas(parcelas_futuras, mes_atual):
     vencidas = [p for p in parcelas_futuras if p['mes'] == mes_atual]
@@ -89,14 +86,16 @@ def processar_parcelas_vencidas(parcelas_futuras, mes_atual):
         parcelas_futuras.remove(parcela)
     return pagamento_total, amortizacao_total, correcao_paga_total
 
+
 def verificar_quitacao_pre(params, total_amortizado_acumulado):
     percentual = total_amortizado_acumulado / params['valor_total_imovel']
     if percentual < params['percentual_minimo_quitacao']:
         valor_fmt = format_currency(total_amortizado_acumulado)
         st.warning(f"Atenção: valor quitado na pré ({valor_fmt}) equivale a {percentual*100:.2f}% do valor do imóvel, abaixo de {params['percentual_minimo_quitacao']*100:.0f}%.")
 
+
 def simular_financiamento(params, valores_reais=None):
-    # Mantida sua lógica da construtora (pré/pós, entrada parcelada, correções INCC/IPCA diluídas)
+    """Simulação da construtora (pré + carência + pós interno) -- SEM ALTERAR: este é o referência para a fase pré."""
     historico = []
     try:
         data_assinatura = datetime.strptime(params['mes_assinatura'], "%m/%Y")
@@ -115,7 +114,7 @@ def simular_financiamento(params, valores_reais=None):
         amortizacao_assinatura = params['valor_entrada']
         saldo_devedor -= amortizacao_assinatura
         amortizacao_total_acumulada += amortizacao_assinatura
-
+    
     historico.append({'DataObj': data_assinatura, 'Mês/Data': f"Assinatura [{data_assinatura.strftime('%m/%Y')}]", 'Fase': 'Assinatura', 'Saldo Devedor': saldo_devedor, 'Parcela Total': amortizacao_assinatura, 'Amortização Base': amortizacao_assinatura, 'Correção INCC ou IPCA diluída (R$)': 0, 'Taxa de Juros (%)': 0, 'Juros (R$)': 0, 'Ajuste INCC (R$)': 0, 'Ajuste IPCA (R$)': 0})
 
     meses_carencia = (data_primeira_parcela.year - data_assinatura.year) * 12 + (data_primeira_parcela.month - data_assinatura.month)
@@ -139,57 +138,56 @@ def simular_financiamento(params, valores_reais=None):
     num_parcelas_entrada = params.get('num_parcelas_entrada', 0)
     total_meses_pagamento = num_parcelas_entrada + params['meses_pre'] + params['meses_pos']
     mes_pos_chaves_contador = 0
-
+    
     for mes_atual in range(1, total_meses_pagamento + 1):
         data_mes = data_primeira_parcela + relativedelta(months=mes_atual-1)
         fase = 'Pós'
-        if mes_atual <= num_parcelas_entrada:
-            fase = 'Entrada'
-        elif mes_atual <= num_parcelas_entrada + params['meses_pre']:
-            fase = 'Pré'
-
+        if mes_atual <= num_parcelas_entrada: fase = 'Entrada'
+        elif mes_atual <= num_parcelas_entrada + params['meses_pre']: fase = 'Pré'
+        
         pagamento, amortizacao, correcao_paga = processar_parcelas_vencidas(parcelas_futuras, mes_atual)
         amortizacao_total_acumulada += amortizacao
         saldo_devedor -= (amortizacao + correcao_paga)
-
+        
         correcao_mes = calcular_correcao(saldo_devedor, mes_atual, fase, params, valores_reais)
         saldo_devedor += correcao_mes
-
+        
         if parcelas_futuras and correcao_mes != 0:
             total_original = sum(p['valor_original'] for p in parcelas_futuras)
             if total_original > 0:
                 for p in parcelas_futuras:
                     p['correcao_acumulada'] += correcao_mes * (p['valor_original'] / total_original)
-
+        
         taxa_juros_mes, juros_mes = 0.0, 0.0
         if fase == 'Pós':
             mes_pos_chaves_contador += 1
             taxa_juros_mes = mes_pos_chaves_contador / 100.0
             juros_mes = (amortizacao + correcao_paga) * taxa_juros_mes
-
+        
         saldo_devedor = max(saldo_devedor, 0)
 
         historico.append({
-            'DataObj': data_mes,
-            'Mês/Data': f"{mes_atual} - [{data_mes.strftime('%m/%Y')}]",
+            'DataObj': data_mes, 
+            'Mês/Data': f"{mes_atual} - [{data_mes.strftime('%m/%Y')}]", 
             'Fase': fase, 'Saldo Devedor': saldo_devedor,
-            'Parcela Total': pagamento + juros_mes,
+            'Parcela Total': pagamento + juros_mes, 
             'Amortização Base': amortizacao,
-            'Correção INCC ou IPCA diluída (R$)': correcao_paga,
+            'Correção INCC ou IPCA diluída (R$)': correcao_paga, 
             'Taxa de Juros (%)': taxa_juros_mes * 100 if fase == 'Pós' else 0,
-            'Juros (R$)': juros_mes,
-            'Ajuste INCC (R$)': correcao_mes if fase in ['Entrada', 'Pré'] else 0,
+            'Juros (R$)': juros_mes, 
+            'Ajuste INCC (R$)': correcao_mes if fase in ['Entrada','Pré'] else 0,
             'Ajuste IPCA (R$)': correcao_mes if fase == 'Pós' else 0
         })
-
+        
         if fase == 'Pré' and mes_atual == num_parcelas_entrada + params['meses_pre']:
             verificar_quitacao_pre(params, amortizacao_total_acumulada)
-
+            
     return pd.DataFrame(historico)
 
 # ============================================
 # BUSCAR ÍNDICES BC (INCC, IPCA, TR)
 # ============================================
+
 def buscar_indices_bc(mes_inicial, meses_total):
     try:
         data_inicio_simulacao = datetime.strptime(mes_inicial, "%m/%Y").replace(day=1)
@@ -197,21 +195,20 @@ def buscar_indices_bc(mes_inicial, meses_total):
         data_fim_busca = data_inicio_simulacao + relativedelta(months=meses_total)
         start_str = data_inicio_busca.strftime("%d/%m/%Y")
         end_str = data_fim_busca.strftime("%d/%m/%Y")
-
+        
         # Séries: 192 = INCC, 433 = IPCA, 226 = TR
         df = sgs.dataframe([192, 433, 226], start=start_str, end=end_str)
-        if df.empty:
-            return {}, 0, pd.DataFrame()
+        if df.empty: return {}, 0, pd.DataFrame()
 
         df = df.rename(columns={192: 'incc', 433: 'ipca', 226: 'tr'})
         df['incc'] = df['incc'] / 100
         df['ipca'] = df['ipca'] / 100
         df['tr'] = df['tr'] / 100
-
+        
         indices = {}
         ultimo_mes_com_dado = 0
         dados_por_data = {idx.strftime("%Y-%m-%d"): {'incc': row['incc'], 'ipca': row['ipca'], 'tr': row['tr']} for idx, row in df.iterrows()}
-
+        
         current_date_simulacao = data_inicio_simulacao
         for mes in range(1, meses_total + 1):
             # Usa a convenção de defasagem de 2 meses (mesmo comportamento anterior)
@@ -224,7 +221,7 @@ def buscar_indices_bc(mes_inicial, meses_total):
             else:
                 indices[mes] = {'incc': None, 'ipca': None, 'tr': None}
             current_date_simulacao += relativedelta(months=1)
-
+            
         return indices, ultimo_mes_com_dado, df
     except Exception as e:
         st.error(f"Erro ao acessar dados do BC: {str(e)}")
@@ -233,6 +230,7 @@ def buscar_indices_bc(mes_inicial, meses_total):
 # ============================================
 # SIMULAÇÃO BANCÁRIA AJUSTADA (CAIXA: indexador + SAC/PRICE + seguros mensais)
 # ============================================
+
 def simular_financiamento_bancario_completo(params_gerais, params_banco, params_construtora, valores_reais=None, offset_mes=0, include_obra=True, valor_financiado_override=None):
     """
     Simulação bancária alinhada às práticas da CAIXA:
@@ -284,7 +282,6 @@ def simular_financiamento_bancario_completo(params_gerais, params_banco, params_
             historico.append({'DataObj': data_corrente, 'Fase': 'Juros de Obra', 'Parcela Total': parcela_obra, 'Saldo Liberado': saldo_liberado_obra})
 
     # fase de amortização
-    # se include_obra True, amortização inicia após prazo_obra_meses; caso contrário, começa logo após assinatura
     saldo_devedor = valor_financiado
     prazo_amort = params_construtora['meses_pos']
     if prazo_amort <= 0:
@@ -293,15 +290,12 @@ def simular_financiamento_bancario_completo(params_gerais, params_banco, params_
     if sistema == 'SAC':
         amortizacao_constante = saldo_devedor / prazo_amort
         for i in range(prazo_amort):
-            # quando include_obra True, o primeiro mês de amortização é data_assinatura + prazo_obra_meses + (i+1)
-            # quando include_obra False, tratamos amortização iniciando em data_assinatura + (i+1)
             months_after = (prazo_obra_meses + i + 1) if include_obra else (i + 1)
             data_corrente = data_assinatura + relativedelta(months=months_after)
 
-            # taxa do indexador (se TR/IPCA usar valores_reais quando existir)
             taxa_index = 0
             if indexador in ['TR', 'IPCA']:
-                chave_mes = offset_mes + i + 1  # offset para alinhar com o dicionário de índices total
+                chave_mes = offset_mes + i + 1
                 if valores_reais is not None and chave_mes in valores_reais:
                     taxa_index = valores_reais[chave_mes].get(indexador.lower(), 0) or 0
                 else:
@@ -331,7 +325,7 @@ def simular_financiamento_bancario_completo(params_gerais, params_banco, params_
             data_corrente = data_assinatura + relativedelta(months=months_after)
 
             taxa_index = 0
-            if indexador in ['TR', 'IPCA']:
+            if indexador in ['TR','IPCA']:
                 chave_mes = offset_mes + i + 1
                 if valores_reais is not None and chave_mes in valores_reais:
                     taxa_index = valores_reais[chave_mes].get(indexador.lower(), 0) or 0
@@ -358,103 +352,71 @@ def simular_financiamento_bancario_completo(params_gerais, params_banco, params_
     return pd.DataFrame(historico)
 
 # ============================================
-# SIMULAÇÃO COMBINADA (CONSTRUTORA + BANCO) — AJUSTADA
+# SIMULAÇÃO COMBINADA (CONSTRUTORA + BANCO) — CORREÇÃO: usa simular_financiamento para PRÉ e alinha datas do banco
 # ============================================
+
 def simular_cenario_combinado(params_construtora, params_banco, valores_reais=None):
     """
-    1) Executa a lógica da construtora até a entrega das chaves (pré)
-    2) Calcula o saldo_devedor final após a pré e passa esse valor como 'valor_financiado_override'
-       para a simulação bancária, chamando simular_financiamento_bancario_completo com include_obra=False
-       e offset_mes = total_meses_pre_chaves (para alinhar índices do valores_reais).
+    Correção importante:
+    - para garantir que a fase PRÉ do cenário combinado seja **idêntica** à simulação da construtora,
+      usamos diretamente simular_financiamento(...) para gerar o dataframe da PRÉ (referência).
+    - calculamos o saldo devendo no final da PRÉ (último 'Saldo Devedor') e passamos como valor_financiado_override
+      para a simulação bancária.
+    - ajustamos a data de início (mes_assinatura) do cenário bancário para o mês imediatamente
+      após o término da PRÉ (assim as datas não se sobrepõem) e usamos offset_mes = total_meses_pre_chaves
+      para alinhar corretamente os índices do valores_reais.
     """
-    historico = []
-    try:
-        data_assinatura = datetime.strptime(params_construtora['mes_assinatura'], "%m/%Y")
-        data_primeira_parcela = datetime.strptime(params_construtora['mes_primeira_parcela'], "%m/%Y")
-    except:
+    # Gera o dataframe PRÉ com a função de referência (garante igualdade)
+    df_pre = simular_financiamento(params_construtora, valores_reais)
+    if df_pre.empty:
         return pd.DataFrame()
 
-    # --- Parte 1: lógica da construtora (pré e carência etc.) ---
-    saldo_devedor = params_construtora['valor_total_imovel']
-    amortizacao_total_acumulada = 0
-    if params_construtora['tipo_pagamento_entrada'] == 'Paga no ato':
-        amortizacao_assinatura = params_construtora['valor_entrada']
-        saldo_devedor -= amortizacao_assinatura
-        amortizacao_total_acumulada += amortizacao_assinatura
-        historico.append({'DataObj': data_assinatura, 'Fase': 'Entrada (Ato)', 'Parcela Total': amortizacao_assinatura})
+    # determina saldo remanescente após a PRÉ: pega o último valor de 'Saldo Devedor' no df_pre
+    if 'Saldo Devedor' in df_pre.columns:
+        valor_financiado_para_banco = df_pre['Saldo Devedor'].iloc[-1]
+    else:
+        # fallback conservador: usar valor_total_imovel menos amortizações (se não existir coluna esperada)
+        valor_financiado_para_banco = params_construtora['valor_total_imovel'] - df_pre.get('Amortização Base', pd.Series([0])).sum()
 
-    meses_carencia = (data_primeira_parcela.year - data_assinatura.year) * 12 + (data_primeira_parcela.month - data_assinatura.month)
-    data_corrente_carencia = data_assinatura
-    saldo_temp_carencia = saldo_devedor
-    total_correcao_carencia = 0
-    for i in range(meses_carencia):
-        data_corrente_carencia += relativedelta(months=1)
-        correcao_mes_carencia = calcular_correcao(saldo_temp_carencia, 0, 'Carência', params_construtora, valores_reais)
-        total_correcao_carencia += correcao_mes_carencia
-        saldo_temp_carencia += correcao_mes_carencia
-
-    parcelas_futuras = construir_parcelas_futuras(params_construtora)
-    if total_correcao_carencia > 0 and parcelas_futuras:
-        total_original = sum(p['valor_original'] for p in parcelas_futuras)
-        if total_original > 0:
-            for p in parcelas_futuras:
-                p['correcao_acumulada'] += total_correcao_carencia * (p['valor_original'] / total_original)
-
+    # calcula total de meses da fase pré para alinhar datas e índices
     num_parcelas_entrada = params_construtora.get('num_parcelas_entrada', 0)
     total_meses_pre_chaves = num_parcelas_entrada + params_construtora['meses_pre']
-    data_mes = data_primeira_parcela
 
-    for mes_atual in range(1, total_meses_pre_chaves + 1):
-        data_mes = data_primeira_parcela + relativedelta(months=mes_atual-1)
-        fase = 'Entrada' if mes_atual <= num_parcelas_entrada else 'Pré-Chaves'
+    # data_primeira_parcela -> última parcela pré é em: data_primeira_parcela + (total_meses_pre_chaves - 1)
+    # então o mês seguinte (início da amortização bancária) é:
+    try:
+        data_primeira_parcela = datetime.strptime(params_construtora['mes_primeira_parcela'], "%m/%Y")
+        data_inicio_banco = data_primeira_parcela + relativedelta(months=total_meses_pre_chaves)
+        params_gerais_banco = {'mes_assinatura': data_inicio_banco.strftime("%m/%Y"), 'valor_total_imovel': params_construtora['valor_total_imovel'], 'valor_entrada': params_construtora['valor_entrada']}
+    except Exception:
+        # fallback: usa a mesma data de assinatura
+        params_gerais_banco = {'mes_assinatura': params_construtora['mes_assinatura'], 'valor_total_imovel': params_construtora['valor_total_imovel'], 'valor_entrada': params_construtora['valor_entrada']}
+        total_meses_pre_chaves = 0
 
-        pagamento, amortizacao, correcao_paga = processar_parcelas_vencidas(parcelas_futuras, mes_atual)
-        amortizacao_total_acumulada += amortizacao
-        saldo_devedor -= (amortizacao + correcao_paga)
-
-        correcao_mes = calcular_correcao(saldo_devedor, mes_atual, fase, params_construtora, valores_reais)
-        saldo_devedor += correcao_mes
-
-        if parcelas_futuras and correcao_mes != 0:
-            total_original_restante = sum(p['valor_original'] for p in parcelas_futuras)
-            if total_original_restante > 0:
-                for p in parcelas_futuras:
-                    p['correcao_acumulada'] += correcao_mes * (p['valor_original'] / total_original_restante)
-
-        historico.append({'DataObj': data_mes, 'Fase': fase, 'Parcela Total': pagamento})
-
-    # Alerta de quitação mínima se aplicável
-    if num_parcelas_entrada + params_construtora['meses_pre'] > 0:
-        verificar_quitacao_pre(params_construtora, amortizacao_total_acumulada)
-
-    # --- Parte 2: agora o banco financia o saldo remanescente (apenas AMORTIZAÇÃO, sem repetir obra) ---
-    valor_financiado_para_banco = saldo_devedor
-    # chamamos a função do banco com override do valor financiado, include_obra=False
-    # offset_mes deve ser igual ao número de meses já simulados (pré) para alinhar os índices
-    offset_para_banco = total_meses_pre_chaves
+    # chama simulação do banco com override do saldo e sem repetir fase de obra, alinhando índices com offset
     df_banco = simular_financiamento_bancario_completo(
-        params_gerais={'mes_assinatura': params_construtora['mes_assinatura'], 'valor_total_imovel': params_construtora['valor_total_imovel'], 'valor_entrada': params_construtora['valor_entrada']},
+        params_gerais=params_gerais_banco,
         params_banco=params_banco,
         params_construtora=params_construtora,
         valores_reais=valores_reais,
-        offset_mes=offset_para_banco,
+        offset_mes=total_meses_pre_chaves,
         include_obra=False,
         valor_financiado_override=valor_financiado_para_banco
     )
 
-    # Concatena historico (pré) com df_banco (pós)
-    if not df_banco.empty:
-        # Ajusta DataObj/colunas de df_banco para combinar com histórico
-        # df_banco já tem DataObj e Fase definidos na função bancaria
-        # Converte df_banco rows para dicionários e adiciona ao historico
-        for _, row in df_banco.iterrows():
-            historico.append(row.to_dict())
+    # concatena PRÉ (df_pre) com o df_banco (pós) e ordena por DataObj para formar o cronograma combinado
+    if df_banco.empty:
+        return df_pre
 
-    return pd.DataFrame(historico)
+    # harmoniza colunas e concatena
+    df_comb = pd.concat([df_pre, df_banco], ignore_index=True, sort=False)
+    df_comb = df_comb.sort_values('DataObj').reset_index(drop=True)
+    return df_comb
 
 # ============================================
 # INTERFACE STREAMLIT (com novos campos para banco)
 # ============================================
+
 def criar_parametros():
     st.sidebar.header("Parâmetros Gerais (Construtora)")
     params = {}
@@ -489,17 +451,16 @@ def criar_parametros():
         cs1, cs2 = st.sidebar.columns(2)
         mes_sem = cs1.number_input(f"Mês da {i+1}ª semestral", value=6*(i+1) if i<2 else 0, key=f"sem_mes_{i}")
         valor_sem = cs2.number_input(f"Valor {i+1} (R$)", value=6000.0 if i<2 else 0.0, key=f"sem_val_{i}", format="%.2f")
-        if mes_sem > 0 and valor_sem > 0:
-            params['parcelas_semestrais'][int(mes_sem)] = valor_sem
+        if mes_sem > 0 and valor_sem > 0: params['parcelas_semestrais'][int(mes_sem)] = valor_sem
     st.sidebar.write("Parcelas Anuais:")
     ca1, ca2 = st.sidebar.columns(2)
     mes_anu = ca1.number_input("Mês da anual", value=17, key="anu_mes")
     valor_anu = ca2.number_input("Valor anual (R$)", value=43300.0, key="anu_val", format="%.2f")
-    if mes_anu > 0 and valor_anu > 0:
-        params['parcelas_anuais'][int(mes_anu)] = valor_anu
+    if mes_anu > 0 and valor_anu > 0: params['parcelas_anuais'][int(mes_anu)] = valor_anu
     params['percentual_minimo_quitacao'] = 0.3
     params['limite_correcao'] = None
     return params
+
 
 def criar_parametros_banco(params_construtora):
     st.info("Os prazos do financiamento bancário são sincronizados com os da construtora para uma comparação justa.", icon="💡")
@@ -519,9 +480,11 @@ def criar_parametros_banco(params_construtora):
         params_banco['ipca_medio'] = st.number_input("IPCA média mensal (decimal)", value=0.004669, format="%.6f", help="Usado se não houver dados do SGS")
     return params_banco
 
+
 def mostrar_resultados(df_resultado):
     st.subheader("Tabela de Simulação Detalhada (Construtora)")
     st.dataframe(df_resultado.style.format({"Saldo Devedor": format_currency, "Parcela Total": format_currency, "Amortização Base": format_currency, "Correção INCC ou IPCA diluída (R$)": format_currency, "Juros (R$)": format_currency, "Ajuste INCC (R$)": format_currency, "Ajuste IPCA (R$)": format_currency, "Taxa de Juros (%)": "{:.2f}%"}), use_container_width=True, height=350)
+
 
 def mostrar_comparacao(df_c, df_b, df_comb):
     st.header("Resultados da Comparação")
@@ -533,7 +496,7 @@ def mostrar_comparacao(df_c, df_b, df_comb):
     c_custo_total = df_c['Custo Acumulado'].iloc[-1]
     b_custo_total = df_b['Custo Acumulado'].iloc[-1]
     comb_custo_total = df_comb['Custo Acumulado'].iloc[-1]
-
+    
     res1, res2, res3 = st.columns(3)
     with res1:
         st.subheader("🏗️ Construtora")
@@ -596,7 +559,7 @@ def main():
 
         if not st.session_state.df_resultado.empty:
             params_gerais = {'valor_total_imovel': params['valor_total_imovel'], 'valor_entrada': params['valor_entrada'], 'mes_assinatura': params['mes_assinatura']}
-            st.session_state.df_banco = simular_financiamento_bancario_completo(params_gerais, params_banco, params, real_values)
+            st.session_state.df_banco = simular_financiamento_bancario_completo(params_gerais, params_banco, params)
             st.session_state.df_combinado = simular_cenario_combinado(params.copy(), params_banco, real_values)
         else:
             st.session_state.df_banco = pd.DataFrame()
@@ -610,8 +573,7 @@ def main():
         if st.button("2. Simular Híbrido (BC + Médias)", use_container_width=True):
             total_meses = params.get('num_parcelas_entrada', 0) + params['meses_pre'] + params['meses_pos']
             valores_reais, ultimo_mes, _ = buscar_indices_bc(params['mes_primeira_parcela'], total_meses)
-            if ultimo_mes > 0:
-                st.info(f"Dados reais do BC aplicados até a parcela {ultimo_mes}.")
+            if ultimo_mes > 0: st.info(f"Dados reais do BC aplicados até a parcela {ultimo_mes}.")
             run_full_simulation(params.copy(), valores_reais)
     with col3:
         if st.button("3. Simular Apenas com BC (Puro)", use_container_width=True):
