@@ -33,12 +33,13 @@ def calcular_cet(valor_financiado, pagamentos):
     Returns:
         float: O CET em formato percentual anual (ex: 12.5). Retorna 0.0 se o cálculo falhar.
     """
+    # Valida se o cenário é calculável (valor financiado e pagamentos > 0)
     if valor_financiado <= 0 or not any(p > 0 for p in pagamentos):
         return 0.0
 
     # O fluxo de caixa para a TIR começa com o valor recebido (positivo)
-    # seguido por todos os pagamentos (negativos).
-    fluxo_de_caixa = [valor_financiado] + [-p for p in pagamentos if p > 0]
+    # seguido por TODOS os pagamentos (negativos), incluindo períodos com pagamento zero.
+    fluxo_de_caixa = [valor_financiado] + [-p for p in pagamentos]
 
     try:
         # np.irr calcula a TIR para o período (que é mensal, neste caso)
