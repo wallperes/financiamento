@@ -378,6 +378,77 @@ def simular_cenario_combinado(params_construtora, params_banco, valores_reais=No
     return df_comb
 
 # ============================================
+# NOVA SIMULAÇÃO: ASSOCIATIVO (PRÉ + JUROS OBRA -> PÓS)
+# ============================================
+def simular_cenario_associativo(params_construtora, params_banco, valores_reais=None):
+    # 1. Simula a fase da construtora para obter o fluxo pré-chaves e o saldo a financiar
+    df_full_constructor = simular_financiamento(params_construtora, valores_reais)
+    if df_full_constructor.empty:
+        return pd.DataFrame()
+
+    df_pre = df_full_constructor[df_full_constructor['Fase'] != 'Pós'].copy()
+    if df_pre.empty:
+        return pd.DataFrame()
+        
+    valor_financiado_banco_inicial = df_pre['Saldo Devedor'].iloc[-1]
+
+    # 2. Calcula os juros de obra que seriam pagos ao banco durante a fase pré-chaves
+    prazo_obra_meses = params_construtora.get('num_parcelas_entrada', 0) + params_construtora['meses_pre']
+    juros_obra_historico = {}
+    if prazo_obra_meses > 0:
+        taxa_juros_mensal = (params_banco['taxa_juros_anual'] / 100) / 12
+        taxa_admin_mensal_valor = params_banco.get('taxa_admin_mensal', 0)
+        valor_seguro_inicial = params_banco.get('seguro_primeira_parcela', 0)
+        taxa_seguro_mensal_efetiva = valor_seguro_inicial / valor_financiado_banco_inicial if valor_financiado_banco_inicial > 0 else 0
+        
+        saldo_liberado_obra = 0.0
+        liberacao_mensal = valor_financiado_banco_inicial / prazo_obra_meses
+        data_inicio_obra = df_pre[df_pre['Fase'].isin(['Entrada', 'Pré'])]['DataObj'].min()
+
+        for i in range(prazo_obra_meses):
+            data_corrente = data_inicio_obra + relativedelta(months=i)
+            saldo_liberado_obra += liberacao_mensal
+            juros_obra = saldo_liberado_obra * taxa_juros_mensal
+            seguro_obra = taxa_seguro_mensal_efetiva * saldo_liberado_obra
+            encargos_obra = taxa_admin_mensal_valor + seguro_obra
+            juros_obra_historico[data_corrente] = juros_obra + encargos_obra
+
+    # 3. Combina os pagamentos da construtora com os juros de obra
+    df_pre_associativo = df_pre.copy()
+    juros_de_obra_pagos = df_pre_associativo['DataObj'].map(juros_obra_historico).fillna(0)
+    df_pre_associativo['Juros (R$)'] += juros_de_obra_pagos
+    df_pre_associativo['Encargos (R$)'] = juros_de_obra_pagos # A parcela de juros de obra é composta de juros + encargos
+    df_pre_associativo['Parcela Total (R$)'] += juros_de_obra_pagos
+    df_pre_associativo['Fase'] = df_pre_associativo['Fase'].replace({'Entrada': 'Pré (Construtora + J. Obra)', 'Pré': 'Pré (Construtora + J. Obra)'})
+
+    # 4. Simula a fase de amortização do banco com o saldo DEVEDOR INICIAL (não corrigido)
+    num_parcelas_entrada = params_construtora.get('num_parcelas_entrada', 0)
+    total_meses_pre_chaves = num_parcelas_entrada + params_construtora['meses_pre']
+    try:
+        data_primeira_parcela = datetime.strptime(params_construtora['mes_primeira_parcela'], "%m/%Y")
+        data_inicio_banco = data_primeira_parcela + relativedelta(months=total_meses_pre_chaves)
+    except Exception:
+        data_inicio_banco = datetime.now()
+
+    params_gerais_banco = {'mes_assinatura': data_inicio_banco.strftime("%m/%Y")}
+    prazo_amort_para_banco = params_construtora['meses_pos']
+    
+    df_banco_pos = simular_financiamento_bancario_completo(
+        params_gerais=params_gerais_banco, params_banco=params_banco, params_construtora=params_construtora,
+        valores_reais=valores_reais, offset_mes=total_meses_pre_chaves, include_obra=False,
+        valor_financiado_override=valor_financiado_banco_inicial, # Chave da lógica: usa o saldo inicial
+        prazo_amort_override=prazo_amort_para_banco
+    )
+
+    # 5. Concatena os resultados
+    if df_banco_pos.empty:
+        return df_pre_associativo
+    
+    df_final = pd.concat([df_pre_associativo, df_banco_pos], ignore_index=True, sort=False)
+    return df_final.sort_values('DataObj').reset_index(drop=True)
+
+
+# ============================================
 # INTERFACE STREAMLIT (MODIFICADA)
 # ============================================
 def criar_parametros():
@@ -451,14 +522,15 @@ def display_detailed_table(df, title):
 
         st.dataframe(df_display.style.format(format_dict), use_container_width=True, height=400)
 
-def mostrar_comparacao(df_c, df_b, df_comb, cet_c, cet_b, cet_comb):
+def mostrar_comparacao(df_c, df_b, df_comb, df_assoc, cet_c, cet_b, cet_comb, cet_assoc):
     st.header("Resultados da Comparação")
 
     c_custo_total = df_c['Parcela Total (R$)'].sum() if not df_c.empty else 0
     b_custo_total = df_b['Parcela Total (R$)'].sum() if not df_b.empty else 0
     comb_custo_total = df_comb['Parcela Total (R$)'].sum() if not df_comb.empty else 0
+    assoc_custo_total = df_assoc['Parcela Total (R$)'].sum() if not df_assoc.empty else 0
 
-    res1, res2, res3 = st.columns(3)
+    res1, res2, res3, res4 = st.columns(4)
     with res1:
         st.subheader("🏗️ Construtora")
         if not df_c.empty:
@@ -480,10 +552,17 @@ def mostrar_comparacao(df_c, df_b, df_comb, cet_c, cet_b, cet_comb):
             st.metric("Maior Parcela", format_currency(df_comb['Parcela Total (R$)'].max()))
             st.metric("Término", df_comb['DataObj'].iloc[-1].strftime("%m/%Y"))
             st.metric("CET (Custo Efetivo Total)", f"{cet_comb:.2f}% a.a.")
+    with res4:
+        st.subheader("🤝🏦 Associativo")
+        if not df_assoc.empty:
+            st.metric("Custo Total", format_currency(assoc_custo_total), delta=format_currency(assoc_custo_total - c_custo_total))
+            st.metric("Maior Parcela", format_currency(df_assoc['Parcela Total (R$)'].max()))
+            st.metric("Término", df_assoc['DataObj'].iloc[-1].strftime("%m/%Y"))
+            st.metric("CET (Custo Efetivo Total)", f"{cet_assoc:.2f}% a.a.")
 
     all_dfs = [
         df[['DataObj', 'Parcela Total (R$)']].rename(columns={'Parcela Total (R$)': name})
-        for df, name in [(df_c, 'Construtora'), (df_b, 'Banco (Início)'), (df_comb, 'Combinado')] if not df.empty
+        for df, name in [(df_c, 'Construtora'), (df_b, 'Banco (Início)'), (df_comb, 'Combinado'), (df_assoc, 'Associativo')] if not df.empty
     ]
     if all_dfs:
         df_merged = all_dfs[0]
@@ -497,12 +576,13 @@ def mostrar_comparacao(df_c, df_b, df_comb, cet_c, cet_b, cet_comb):
     if not df_c.empty: display_detailed_table(df_c, "Construtora")
     if not df_b.empty: display_detailed_table(df_b, "Banco (Início)")
     if not df_comb.empty: display_detailed_table(df_comb, "Combinado")
+    if not df_assoc.empty: display_detailed_table(df_assoc, "Associativo")
 
 def main():
     st.set_page_config(layout="wide", page_title="Simulador e Comparador de Financiamento")
     st.title("Simulador de Financiamento Imobiliário 🚧🏗️")
 
-    for key in ['df_resultado', 'df_banco', 'df_combinado', 'cet_construtora', 'cet_banco', 'cet_combinado']:
+    for key in ['df_resultado', 'df_banco', 'df_combinado', 'df_associativo', 'cet_construtora', 'cet_banco', 'cet_combinado', 'cet_associativo']:
         if key not in st.session_state:
             st.session_state[key] = pd.DataFrame() if 'df' in key else 0.0
 
@@ -515,32 +595,32 @@ def main():
         st.session_state.df_resultado = simular_financiamento(sim_params, real_values)
         st.session_state.df_banco = pd.DataFrame()
         st.session_state.df_combinado = pd.DataFrame()
-        st.session_state.cet_construtora, st.session_state.cet_banco, st.session_state.cet_combinado = 0.0, 0.0, 0.0
+        st.session_state.df_associativo = pd.DataFrame()
+        st.session_state.cet_construtora, st.session_state.cet_banco, st.session_state.cet_combinado, st.session_state.cet_associativo = 0.0, 0.0, 0.0, 0.0
         
         if not st.session_state.df_resultado.empty:
             params_gerais = {'valor_total_imovel': params['valor_total_imovel'], 'valor_entrada': params['valor_entrada'], 'mes_assinatura': params['mes_assinatura']}
             st.session_state.df_banco = simular_financiamento_bancario_completo(params_gerais, params_banco, params, real_values)
             st.session_state.df_combinado = simular_cenario_combinado(params.copy(), params_banco, real_values)
+            st.session_state.df_associativo = simular_cenario_associativo(params.copy(), params_banco, real_values)
             
             # --- CÁLCULO DO CET ---
-            if not st.session_state.df_resultado.empty:
-                pagamentos_df = st.session_state.df_resultado
-                pagamento_t0 = pagamentos_df['Parcela Total (R$)'].iloc[0] if not pagamentos_df.empty else 0
-                valor_financiado_liquido = sim_params['valor_total_imovel'] - pagamento_t0
-                pagamentos_futuros = pagamentos_df['Parcela Total (R$)'].iloc[1:].tolist()
-                st.session_state.cet_construtora = calcular_cet(valor_financiado_liquido, pagamentos_futuros)
+            for scenario in ['construtora', 'banco', 'combinado', 'associativo']:
+                df_key = {'construtora': 'df_resultado', 'banco': 'df_banco', 'combinado': 'df_combinado', 'associativo': 'df_associativo'}[scenario]
+                cet_key = f'cet_{scenario}'
+                df = st.session_state[df_key]
+                
+                if not df.empty:
+                    if scenario == 'banco':
+                        valor_financiado_liquido = params_gerais['valor_total_imovel'] - params_gerais['valor_entrada']
+                        pagamentos_futuros = df['Parcela Total (R$)'].tolist()
+                    else:
+                        pagamento_t0 = df['Parcela Total (R$)'].iloc[0]
+                        valor_financiado_liquido = sim_params['valor_total_imovel'] - pagamento_t0
+                        pagamentos_futuros = df['Parcela Total (R$)'].iloc[1:].tolist()
+                    
+                    st.session_state[cet_key] = calcular_cet(valor_financiado_liquido, pagamentos_futuros)
 
-            if not st.session_state.df_banco.empty:
-                valor_financiado_b = params_gerais['valor_total_imovel'] - params_gerais['valor_entrada']
-                pagamentos_b = st.session_state.df_banco['Parcela Total (R$)'].tolist()
-                st.session_state.cet_banco = calcular_cet(valor_financiado_b, pagamentos_b)
-
-            if not st.session_state.df_combinado.empty:
-                pagamentos_df = st.session_state.df_combinado
-                pagamento_t0 = pagamentos_df['Parcela Total (R$)'].iloc[0] if not pagamentos_df.empty else 0
-                valor_financiado_liquido = sim_params['valor_total_imovel'] - pagamento_t0
-                pagamentos_futuros = pagamentos_df['Parcela Total (R$)'].iloc[1:].tolist()
-                st.session_state.cet_combinado = calcular_cet(valor_financiado_liquido, pagamentos_futuros)
 
     col1, col2, col3, col4 = st.columns(4)
     with col1:
@@ -573,9 +653,16 @@ def main():
 
     if not st.session_state.df_resultado.empty:
         mostrar_comparacao(
-            st.session_state.df_resultado, st.session_state.df_banco, st.session_state.df_combinado,
-            st.session_state.cet_construtora, st.session_state.cet_banco, st.session_state.cet_combinado
+            st.session_state.df_resultado, 
+            st.session_state.df_banco, 
+            st.session_state.df_combinado,
+            st.session_state.df_associativo,
+            st.session_state.cet_construtora, 
+            st.session_state.cet_banco, 
+            st.session_state.cet_combinado,
+            st.session_state.cet_associativo
         )
 
 if __name__ == "__main__":
     main()
+
