@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import numpy_financial as npf
-from datetime import datetime
+from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
 import sgs
 
@@ -74,7 +74,7 @@ def construir_parcelas_futuras(params):
             parcelas.append({'mes': mes, 'valor_original': valor_parcela, 'correcao_acumulada': 0.0, 'tipo': 'pre'})
 
     for mes in range(num_parcelas_entrada + 1 + params['meses_pre'],
-                     num_parcelas_entrada + 1 + params['meses_pre'] + params['meses_pos']):
+                       num_parcelas_entrada + 1 + params['meses_pre'] + params['meses_pos']):
         parcelas.append({'mes': mes, 'valor_original': params['valor_amortizacao_pos'], 'correcao_acumulada': 0.0, 'tipo': 'pos'})
 
     return parcelas
@@ -187,10 +187,7 @@ def simular_financiamento(params, valores_reais=None):
                     p['correcao_acumulada'] += correcao_mes * (p['valor_original'] / total_original)
 
         taxa_juros_mes, juros_mes = 0.0, 0.0
-        if fase == 'Pós':
-            mes_pos_chaves_contador += 1
-            taxa_juros_mes = mes_pos_chaves_contador / 100.0
-            juros_mes = (amortizacao + correcao_paga) * taxa_juros_mes
+        # A lógica de juros da construtora foi removida para ser substituída pela do banco.
         
         saldo_devedor = max(saldo_devedor, 0)
 
@@ -198,11 +195,11 @@ def simular_financiamento(params, valores_reais=None):
             'DataObj': data_mes,
             'Mês/Data': f"{mes_atual} - [{data_mes.strftime('%m/%Y')}]",
             'Fase': fase, 'Saldo Devedor': saldo_devedor,
-            'Parcela Total (R$)': pagamento + juros_mes,
+            'Parcela Total (R$)': pagamento,
             'Amortização Base (R$)': amortizacao,
             'Correção Monetária Paga (R$)': correcao_paga,
-            'Taxa de Juros (%)': taxa_juros_mes * 100 if fase == 'Pós' else 0,
-            'Juros (R$)': juros_mes,
+            'Taxa de Juros (%)': 0,
+            'Juros (R$)': 0,
             'Correção Monetária Gerada (R$)': correcao_mes,
             'Índice Correção': indice_mes,
             'Encargos (R$)': 0
@@ -253,50 +250,136 @@ def buscar_indices_bc(mes_inicial, meses_total):
         return {}, 0, pd.DataFrame()
 
 # ============================================
+# NOVA LÓGICA DE JUROS DE OBRA
+# ============================================
+def calcular_juros_obra_detalhado(params_gerais, params_banco, params_construtora, valor_financiado):
+    historico = []
+    # --- Parâmetros essenciais ---
+    data_assinatura_banco = datetime.strptime(params_gerais['mes_assinatura'], "%m/%Y")
+    data_inicio_obra = datetime.combine(params_banco['data_inicio_obra'], datetime.min.time())
+    prazo_obra_total_meses = params_banco['prazo_obra_total_meses']
+    perc_obra_inicio_contrato = params_banco['percentual_obra_inicio_contrato'] / 100.0
+
+    if prazo_obra_total_meses <= 0: return pd.DataFrame()
+
+    # --- Calcula o período de pagamento de juros para ESTE comprador ---
+    meses_obra_ate_contrato = (data_assinatura_banco.year - data_inicio_obra.year) * 12 + (data_assinatura_banco.month - data_inicio_obra.month)
+    meses_restantes_obra = prazo_obra_total_meses - meses_obra_ate_contrato
+    if meses_restantes_obra <= 0: return pd.DataFrame()
+
+    # --- Parâmetros de cálculo do banco ---
+    taxa_juros_mensal = (params_banco['taxa_juros_anual'] / 100) / 12
+    taxa_admin_mensal_valor = params_banco.get('taxa_admin_mensal', 0)
+    valor_seguro_inicial = params_banco.get('seguro_primeira_parcela', 0)
+    taxa_seguro_mensal_efetiva = valor_seguro_inicial / valor_financiado if valor_financiado > 0 else 0
+    
+    # --- Processa marcos manuais se existirem ---
+    marcos = {}
+    if params_banco['metodo_calculo_juros'] == 'Manual':
+        try:
+            items = params_banco['marcos_liberacao'].replace(" ", "").split(',')
+            for item in items:
+                mes, perc = item.split(':')
+                marcos[int(mes)] = float(perc)
+        except Exception:
+            st.error("Formato dos marcos de liberação inválido. Use: 'mes:percentual, mes:percentual'. Ex: '6:20, 12:50'")
+            return pd.DataFrame()
+
+    for i in range(meses_restantes_obra):
+        data_corrente = data_assinatura_banco + relativedelta(months=i)
+        mes_total_obra_atual = meses_obra_ate_contrato + i + 1
+        
+        percentual_conclusao_acumulado = 0
+        # --- Lógica de cálculo do percentual liberado ---
+        if params_banco['metodo_calculo_juros'] == 'Linear':
+            incremento = (1.0 - perc_obra_inicio_contrato) / meses_restantes_obra
+            percentual_conclusao_acumulado = perc_obra_inicio_contrato + (incremento * (i + 1))
+        
+        elif params_banco['metodo_calculo_juros'] == 'Progressiva (S-Curve)':
+            # Mapeia o progresso do tempo total da obra para uma escala de 0 a 1
+            t = mes_total_obra_atual / prazo_obra_total_meses
+            # Fórmula da S-Curve: f(t) = 3t^2 - 2t^3
+            percentual_conclusao_acumulado = (3 * t**2) - (2 * t**3)
+
+        elif params_banco['metodo_calculo_juros'] == 'Manual':
+            meses_ordenados = sorted(marcos.keys())
+            if not meses_ordenados or mes_total_obra_atual < meses_ordenados[0]:
+                percentual_conclusao_acumulado = perc_obra_inicio_contrato
+            else:
+                mes_anterior, perc_anterior = 0, 0
+                for mes_marco in meses_ordenados:
+                    if mes_total_obra_atual >= mes_marco:
+                        mes_anterior, perc_anterior = mes_marco, marcos[mes_marco]
+                    else:
+                        mes_seguinte, perc_seguinte = mes_marco, marcos[mes_marco]
+                        # Interpolação linear
+                        fator = (mes_total_obra_atual - mes_anterior) / (mes_seguinte - mes_anterior)
+                        percentual_conclusao_acumulado = perc_anterior + fator * (perc_seguinte - perc_anterior)
+                        break
+                else: # Se passou pelo último marco
+                    percentual_conclusao_acumulado = perc_anterior
+            percentual_conclusao_acumulado /= 100.0
+
+
+        # Garante que o percentual não exceda 100% e não seja menor que o inicial
+        percentual_conclusao_acumulado = max(perc_obra_inicio_contrato, min(1.0, percentual_conclusao_acumulado))
+
+        saldo_liberado_obra = valor_financiado * percentual_conclusao_acumulado
+        juros_obra = saldo_liberado_obra * taxa_juros_mensal
+        seguro_obra = taxa_seguro_mensal_efetiva * saldo_liberado_obra
+        encargos_obra = taxa_admin_mensal_valor + seguro_obra
+        parcela_obra = juros_obra + encargos_obra
+
+        historico.append({
+            'DataObj': data_corrente, 
+            'Mês/Data': f"Obra {i+1} - [{data_corrente.strftime('%m/%Y')}]", 
+            'Fase': 'Juros de Obra', 
+            'Saldo Devedor': valor_financiado, 
+            'Amortização Base (R$)': 0, 
+            'Juros (R$)': juros_obra, 
+            'Correção Monetária Paga (R$)': 0, 
+            'Encargos (R$)': encargos_obra, 
+            'Parcela Total (R$)': parcela_obra, 
+            'Correção Monetária Gerada (R$)': 0, 
+            'Índice Correção': f'{percentual_conclusao_acumulado:.2%} concluído', 
+            'Taxa de Juros (%)': taxa_juros_mensal * 100
+        })
+    return pd.DataFrame(historico)
+
+# ============================================
 # SIMULAÇÃO BANCÁRIA (MODIFICADA PARA TABELA DETALHADA)
 # ============================================
 def simular_financiamento_bancario_completo(params_gerais, params_banco, params_construtora, valores_reais=None, offset_mes=0, include_obra=True, valor_financiado_override=None, prazo_amort_override=None):
-    historico = []
-    try:
-        data_assinatura = datetime.strptime(params_gerais['mes_assinatura'], "%m/%Y")
-    except Exception:
-        st.error("Data de assinatura inválida para o cenário bancário!")
-        return pd.DataFrame()
-
+    historico_df = pd.DataFrame()
+    
     valor_financiado = valor_financiado_override if valor_financiado_override is not None else (params_gerais['valor_total_imovel'] - params_gerais['valor_entrada'])
     taxa_juros_mensal = (params_banco['taxa_juros_anual'] / 100) / 12
     taxa_admin_mensal_valor = params_banco.get('taxa_admin_mensal', 0)
     valor_seguro_inicial = params_banco.get('seguro_primeira_parcela', 0)
     taxa_seguro_mensal_efetiva = valor_seguro_inicial / valor_financiado if valor_financiado > 0 else 0
-
     indexador = params_banco.get('indexador', 'TR')
     tr_medio = params_banco.get('tr_medio', 0.0)
     ipca_medio = params_banco.get('ipca_medio', 0.0)
     sistema = params_banco.get('sistema_amortizacao', 'PRICE')
 
-    prazo_obra_meses = params_construtora.get('num_parcelas_entrada', 0) + params_construtora['meses_pre']
-    saldo_liberado_obra = 0.0
-    if include_obra and prazo_obra_meses > 0:
-        liberacao_mensal = valor_financiado / prazo_obra_meses
-        for i in range(prazo_obra_meses):
-            data_corrente = data_assinatura + relativedelta(months=i+1)
-            saldo_liberado_obra += liberacao_mensal
-            juros_obra = saldo_liberado_obra * taxa_juros_mensal
-            seguro_obra = taxa_seguro_mensal_efetiva * saldo_liberado_obra
-            encargos_obra = taxa_admin_mensal_valor + seguro_obra
-            parcela_obra = juros_obra + encargos_obra
-            historico.append({'DataObj': data_corrente, 'Mês/Data': f"Obra {i+1} - [{data_corrente.strftime('%m/%Y')}]", 'Fase': 'Juros de Obra', 'Saldo Devedor': valor_financiado, 'Amortização Base (R$)': 0, 'Juros (R$)': juros_obra, 'Correção Monetária Paga (R$)': 0, 'Encargos (R$)': encargos_obra, 'Parcela Total (R$)': parcela_obra, 'Correção Monetária Gerada (R$)': 0, 'Índice Correção': 'N/A', 'Taxa de Juros (%)': taxa_juros_mensal * 100})
+    if include_obra:
+        df_juros_obra = calcular_juros_obra_detalhado(params_gerais, params_banco, params_construtora, valor_financiado)
+        if not df_juros_obra.empty:
+            historico_df = pd.concat([historico_df, df_juros_obra], ignore_index=True)
 
     saldo_devedor = valor_financiado
     prazo_amort = prazo_amort_override if prazo_amort_override is not None else params_construtora['meses_pos']
     if prazo_amort <= 0:
-        return pd.DataFrame(historico)
+        return historico_df
+
+    data_inicio_amortizacao = datetime.strptime(params_gerais['mes_assinatura'], "%m/%Y")
+    if not historico_df.empty:
+        data_inicio_amortizacao = historico_df['DataObj'].max() + relativedelta(months=1)
 
     # Lógica de Amortização (PRICE ou SAC)
+    historico_amort = []
     for i in range(prazo_amort):
-        months_after = (prazo_obra_meses + i + 1) if include_obra else (i + 1)
-        data_corrente = data_assinatura + relativedelta(months=months_after)
-
+        data_corrente = data_inicio_amortizacao + relativedelta(months=i)
         taxa_index, indice_aplicado = 0, 'Fixa'
         if indexador in ['TR', 'IPCA']:
             chave_mes = offset_mes + i + 1
@@ -313,27 +396,24 @@ def simular_financiamento_bancario_completo(params_gerais, params_banco, params_
         encargos = seguro_mensal + taxa_admin_mensal_valor
         amortizacao = 0
 
-        # Seleciona o sistema de amortização. A seleção no Streamlit define qual bloco será executado.
         if sistema == 'PRICE':
-            # Parcela (Amortização + Juros) é calculada para ser constante, antes da correção monetária e encargos.
             r, n = taxa_juros_mensal, prazo_amort
             parcela_fix = (r * valor_financiado) / (1 - (1 + r) ** (-n)) if r > 0 else valor_financiado / n
             amortizacao = parcela_fix - juros
         elif sistema == 'SAC':
-            # Amortização é constante.
             amortizacao = valor_financiado / prazo_amort
         else:
             st.error(f'Sistema de amortização desconhecido: {sistema}. Use SAC ou PRICE.')
             return pd.DataFrame()
 
         parcela_total = amortizacao + juros + encargos + ajuste_index
-        saldo_devedor_anterior = saldo_devedor
-        # CORREÇÃO: A correção monetária (ajuste_index) é paga na parcela, não capitalizada.
         saldo_devedor = max(saldo_devedor - amortizacao, 0)
         
-        historico.append({'DataObj': data_corrente, 'Mês/Data': f"{i+1} - [{data_corrente.strftime('%m/%Y')}]", 'Fase': f'Amortização {sistema}', 'Saldo Devedor': saldo_devedor, 'Amortização Base (R$)': amortizacao, 'Juros (R$)': juros, 'Correção Monetária Paga (R$)': 0, 'Encargos (R$)': encargos, 'Parcela Total (R$)': parcela_total, 'Correção Monetária Gerada (R$)': ajuste_index, 'Índice Correção': indice_aplicado, 'Taxa de Juros (%)': taxa_juros_mensal * 100})
+        historico_amort.append({'DataObj': data_corrente, 'Mês/Data': f"{i+1} - [{data_corrente.strftime('%m/%Y')}]", 'Fase': f'Amortização {sistema}', 'Saldo Devedor': saldo_devedor, 'Amortização Base (R$)': amortizacao, 'Juros (R$)': juros, 'Correção Monetária Paga (R$)': 0, 'Encargos (R$)': encargos, 'Parcela Total (R$)': parcela_total, 'Correção Monetária Gerada (R$)': ajuste_index, 'Índice Correção': indice_aplicado, 'Taxa de Juros (%)': taxa_juros_mensal * 100})
         
-    return pd.DataFrame(historico)
+    df_amort = pd.DataFrame(historico_amort)
+    return pd.concat([historico_df, df_amort], ignore_index=True) if not df_amort.empty else historico_df
+
 
 # ============================================
 # SIMULAÇÃO COMBINADA (CONSTRUTORA + BANCO)
@@ -356,7 +436,7 @@ def simular_cenario_combinado(params_construtora, params_banco, valores_reais=No
         data_primeira_parcela = datetime.strptime(params_construtora['mes_primeira_parcela'], "%m/%Y")
         data_inicio_banco = data_primeira_parcela + relativedelta(months=total_meses_pre_chaves)
     except Exception:
-        data_inicio_banco = datetime.now() # Fallback
+        data_inicio_banco = datetime.now() 
     
     params_gerais_banco = {'mes_assinatura': data_inicio_banco.strftime("%m/%Y"), 'valor_total_imovel': params_construtora['valor_total_imovel'], 'valor_entrada': params_construtora['valor_entrada']}
     
@@ -381,70 +461,66 @@ def simular_cenario_combinado(params_construtora, params_banco, valores_reais=No
 # NOVA SIMULAÇÃO: ASSOCIATIVO (PRÉ + JUROS OBRA -> PÓS)
 # ============================================
 def simular_cenario_associativo(params_construtora, params_banco, valores_reais=None):
-    # 1. Simula a fase da construtora para obter o fluxo pré-chaves e o saldo a financiar
     df_full_constructor = simular_financiamento(params_construtora, valores_reais)
-    if df_full_constructor.empty:
-        return pd.DataFrame()
+    if df_full_constructor.empty: return pd.DataFrame()
 
-    df_pre = df_full_constructor[df_full_constructor['Fase'] != 'Pós'].copy()
-    if df_pre.empty:
-        return pd.DataFrame()
+    df_pre_construtora = df_full_constructor[df_full_constructor['Fase'] != 'Pós'].copy()
+    if df_pre_construtora.empty: return pd.DataFrame()
         
-    valor_financiado_banco_inicial = df_pre['Saldo Devedor'].iloc[-1]
-
-    # 2. Calcula os juros de obra que seriam pagos ao banco durante a fase pré-chaves
-    prazo_obra_meses = params_construtora.get('num_parcelas_entrada', 0) + params_construtora['meses_pre']
-    juros_obra_historico = {}
-    if prazo_obra_meses > 0:
-        taxa_juros_mensal = (params_banco['taxa_juros_anual'] / 100) / 12
-        taxa_admin_mensal_valor = params_banco.get('taxa_admin_mensal', 0)
-        valor_seguro_inicial = params_banco.get('seguro_primeira_parcela', 0)
-        taxa_seguro_mensal_efetiva = valor_seguro_inicial / valor_financiado_banco_inicial if valor_financiado_banco_inicial > 0 else 0
+    valor_financiado_banco_inicial = df_pre_construtora['Saldo Devedor'].iloc[-1]
+    
+    data_assinatura_construtora = datetime.strptime(params_construtora['mes_assinatura'], "%m/%Y")
+    params_gerais_banco = {'mes_assinatura': data_assinatura_construtora.strftime("%m/%Y")}
+    
+    df_juros_obra = calcular_juros_obra_detalhado(
+        params_gerais=params_gerais_banco, params_banco=params_banco, 
+        params_construtora=params_construtora, valor_financiado=valor_financiado_banco_inicial
+    )
+    
+    if not df_juros_obra.empty:
+        df_pre_combinado = pd.merge(df_pre_construtora, df_juros_obra, on='DataObj', how='outer', suffixes=('_c', '_b'))
         
-        saldo_liberado_obra = 0.0
-        liberacao_mensal = valor_financiado_banco_inicial / prazo_obra_meses
-        data_inicio_obra = df_pre[df_pre['Fase'].isin(['Entrada', 'Pré'])]['DataObj'].min()
+        # Preenche valores e soma as parcelas
+        df_pre_combinado['Parcela Total (R$)_c'] = df_pre_combinado['Parcela Total (R$)_c'].fillna(0)
+        df_pre_combinado['Parcela Total (R$)_b'] = df_pre_combinado['Parcela Total (R$)_b'].fillna(0)
+        df_pre_combinado['Juros (R$)_b'] = df_pre_combinado['Juros (R$)_b'].fillna(0)
+        df_pre_combinado['Encargos (R$)_b'] = df_pre_combinado['Encargos (R$)_b'].fillna(0)
 
-        for i in range(prazo_obra_meses):
-            data_corrente = data_inicio_obra + relativedelta(months=i)
-            saldo_liberado_obra += liberacao_mensal
-            juros_obra = saldo_liberado_obra * taxa_juros_mensal
-            seguro_obra = taxa_seguro_mensal_efetiva * saldo_liberado_obra
-            encargos_obra = taxa_admin_mensal_valor + seguro_obra
-            juros_obra_historico[data_corrente] = juros_obra + encargos_obra
+        df_pre_combinado['Parcela Total (R$)'] = df_pre_combinado['Parcela Total (R$)_c'] + df_pre_combinado['Parcela Total (R$)_b']
+        df_pre_combinado['Juros (R$)'] = df_pre_combinado['Juros (R$)_b']
+        df_pre_combinado['Encargos (R$)'] = df_pre_combinado['Encargos (R$)_b']
+        
+        # Coalesce colunas
+        for col in ['Mês/Data', 'Fase', 'Saldo Devedor', 'Amortização Base (R$)', 'Correção Monetária Paga (R$)', 'Taxa de Juros (%)', 'Correção Monetária Gerada (R$)', 'Índice Correção']:
+             df_pre_combinado[col] = df_pre_combinado[f'{col}_c'].fillna(df_pre_combinado[f'{col}_b'])
+        
+        df_pre_combinado['Fase'] = 'Pré (Construtora + J. Obra)'
+        
+        # Seleciona colunas finais para a fase pré
+        colunas_finais = list(df_pre_construtora.columns)
+        df_pre_final = df_pre_combinado[colunas_finais]
 
-    # 3. Combina os pagamentos da construtora com os juros de obra
-    df_pre_associativo = df_pre.copy()
-    juros_de_obra_pagos = df_pre_associativo['DataObj'].map(juros_obra_historico).fillna(0)
-    df_pre_associativo['Juros (R$)'] += juros_de_obra_pagos
-    df_pre_associativo['Encargos (R$)'] = juros_de_obra_pagos # A parcela de juros de obra é composta de juros + encargos
-    df_pre_associativo['Parcela Total (R$)'] += juros_de_obra_pagos
-    df_pre_associativo['Fase'] = df_pre_associativo['Fase'].replace({'Entrada': 'Pré (Construtora + J. Obra)', 'Pré': 'Pré (Construtora + J. Obra)'})
-
-    # 4. Simula a fase de amortização do banco com o saldo DEVEDOR INICIAL (não corrigido)
-    num_parcelas_entrada = params_construtora.get('num_parcelas_entrada', 0)
-    total_meses_pre_chaves = num_parcelas_entrada + params_construtora['meses_pre']
-    try:
-        data_primeira_parcela = datetime.strptime(params_construtora['mes_primeira_parcela'], "%m/%Y")
-        data_inicio_banco = data_primeira_parcela + relativedelta(months=total_meses_pre_chaves)
-    except Exception:
-        data_inicio_banco = datetime.now()
-
-    params_gerais_banco = {'mes_assinatura': data_inicio_banco.strftime("%m/%Y")}
+    else:
+        df_pre_final = df_pre_construtora
+    
+    # Simula a fase de amortização do banco
+    data_inicio_amortizacao = df_pre_final['DataObj'].max() + relativedelta(months=1)
+    params_gerais_banco_pos = {'mes_assinatura': data_inicio_amortizacao.strftime("%m/%Y")}
     prazo_amort_para_banco = params_construtora['meses_pos']
     
+    total_meses_pre_chaves = params_construtora.get('num_parcelas_entrada', 0) + params_construtora['meses_pre']
+    
     df_banco_pos = simular_financiamento_bancario_completo(
-        params_gerais=params_gerais_banco, params_banco=params_banco, params_construtora=params_construtora,
+        params_gerais=params_gerais_banco_pos, params_banco=params_banco, params_construtora=params_construtora,
         valores_reais=valores_reais, offset_mes=total_meses_pre_chaves, include_obra=False,
-        valor_financiado_override=valor_financiado_banco_inicial, # Chave da lógica: usa o saldo inicial
+        valor_financiado_override=valor_financiado_banco_inicial,
         prazo_amort_override=prazo_amort_para_banco
     )
 
-    # 5. Concatena os resultados
     if df_banco_pos.empty:
-        return df_pre_associativo
+        return df_pre_final
     
-    df_final = pd.concat([df_pre_associativo, df_banco_pos], ignore_index=True, sort=False)
+    df_final = pd.concat([df_pre_final, df_banco_pos], ignore_index=True, sort=False)
     return df_final.sort_values('DataObj').reset_index(drop=True)
 
 
@@ -464,11 +540,10 @@ def criar_parametros():
         params['entrada_mensal'] = params['valor_entrada'] / params['num_parcelas_entrada'] if params['num_parcelas_entrada'] > 0 else 0
     else:
         params['num_parcelas_entrada'] = 0; params['entrada_mensal'] = 0
-    st.sidebar.subheader("Parâmetros de Correção e Juros")
+    st.sidebar.subheader("Parâmetros de Correção")
     params['inicio_correcao'] = st.sidebar.number_input("Aplicar correção a partir de qual parcela?", min_value=1, value=1)
     params['incc_medio'] = st.sidebar.number_input("INCC médio mensal (%)", value=0.5446, format="%.4f") / 100
     params['ipca_medio'] = st.sidebar.number_input("IPCA médio mensal (%)", value=0.4669, format="%.4f") / 100
-    st.sidebar.number_input("Juros Pós-Chaves (% a.a.)", value=12.0, format="%.2f", disabled=True, help="Na lógica de cálculo atual, os juros são progressivos e não baseados nesta taxa fixa.")
 
     st.sidebar.subheader("Fases de Pagamento")
     col1, col2 = st.sidebar.columns(2)
@@ -495,10 +570,10 @@ def criar_parametros():
 def criar_parametros_banco(params_construtora):
     st.info("Para replicar uma simulação da Caixa, use o sistema PRICE e a taxa de juros NOMINAL, mesmo que o documento indique SAC.", icon="💡")
     params_banco = {}
+    
+    st.subheader("Parâmetros do Contrato Bancário")
     pcol1, pcol2 = st.columns(2)
     with pcol1:
-        st.metric("Prazo de obra (meses)", params_construtora.get('num_parcelas_entrada', 0) + params_construtora['meses_pre'])
-        st.metric("Prazo de amortização (meses)", params_construtora['meses_pos'])
         params_banco['taxa_juros_anual'] = st.number_input("Taxa de Juros Nominal (% a.a.)", value=10.0, format="%.4f", key="b_juros")
         params_banco['indexador'] = st.selectbox("Indexador (pós)", ['TR', 'IPCA', 'Fixa'], index=0)
         params_banco['sistema_amortizacao'] = st.selectbox("Sistema de amortização", ['PRICE', 'SAC'], index=0)
@@ -507,6 +582,28 @@ def criar_parametros_banco(params_construtora):
         params_banco['seguro_primeira_parcela'] = st.number_input("Valor do Seguro na 1ª Parcela (R$)", value=94.92, format="%.2f", key="b_seguro", help="Informe o valor total do seguro (DFI+MIP) que aparece na primeira parcela da sua simulação.")
         params_banco['tr_medio'] = st.number_input("TR média mensal (decimal)", value=0.0, format="%.6f", help="Usado se não houver dados do SGS")
         params_banco['ipca_medio'] = st.number_input("IPCA média mensal (decimal)", value=0.004669, format="%.6f", help="Usado se não houver dados do SGS")
+
+    st.subheader("Parâmetros dos Juros de Obra")
+    jcol1, jcol2 = st.columns(2)
+    with jcol1:
+        params_banco['data_inicio_obra'] = st.date_input("Data de início da obra", value=date(2024, 10, 1))
+        params_banco['prazo_obra_total_meses'] = st.number_input("Prazo total da obra (em meses)", min_value=1, value=20)
+        
+    with jcol2:
+        params_banco['percentual_obra_inicio_contrato'] = st.slider("Percentual da obra na assinatura do seu contrato (%)", 0, 100, 0)
+    
+    params_banco['metodo_calculo_juros'] = st.selectbox(
+        "Método de Cálculo da Liberação de Recursos",
+        ['Linear', 'Progressiva (S-Curve)', 'Manual'],
+        index=0, help="Define como o percentual de conclusão da obra evolui. 'S-Curve' é mais realista que 'Linear'."
+    )
+    if params_banco['metodo_calculo_juros'] == 'Manual':
+        params_banco['marcos_liberacao'] = st.text_area(
+            "Defina os marcos (mês da obra: % concluído)", 
+            "6:20, 12:50, 18:90",
+            help="Formato: mes_da_obra:percentual_total, ... A interpolação será linear entre os marcos."
+        )
+
     return params_banco
 
 def display_detailed_table(df, title):
@@ -615,9 +712,9 @@ def main():
                         valor_financiado_liquido = params_gerais['valor_total_imovel'] - params_gerais['valor_entrada']
                         pagamentos_futuros = df['Parcela Total (R$)'].tolist()
                     else:
-                        pagamento_t0 = df['Parcela Total (R$)'].iloc[0]
+                        pagamento_t0 = df['Parcela Total (R$)'].iloc[0] if not df[df['Fase'] == 'Assinatura'].empty else 0
                         valor_financiado_liquido = sim_params['valor_total_imovel'] - pagamento_t0
-                        pagamentos_futuros = df['Parcela Total (R$)'].iloc[1:].tolist()
+                        pagamentos_futuros = df['Parcela Total (R$)'][df['Fase'] != 'Assinatura'].tolist()
                     
                     st.session_state[cet_key] = calcular_cet(valor_financiado_liquido, pagamentos_futuros)
 
@@ -665,4 +762,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
