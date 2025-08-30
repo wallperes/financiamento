@@ -5,3 +5,4 @@ sgs
 python-dateutil
 openpyxl
 xlsxwriter
+numpy-financial
