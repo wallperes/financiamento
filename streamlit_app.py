@@ -22,7 +22,7 @@ def converter_juros_anual_para_mensal(taxa_anual):
     return (1 + taxa_anual)**(1/12) - 1
 
 # ============================================
-# LÓGICA DE SIMULAÇÃO - CONSTRUTORA (LÓGICA DE CÁLCULO ANTIGA RESTAURADA)
+# LÓGICA DE SIMULAÇÃO - CONSTRUTORA (LÓGICA DE CÁLCULO CORRIGIDA)
 # ============================================
 
 def construir_parcelas_futuras(params):
@@ -138,9 +138,11 @@ def simular_financiamento(params, valores_reais=None):
         amortizacao_total_acumulada += amortizacao
         saldo_devedor -= (amortizacao + correcao_paga)
         
+        # Correção do mês (INCC ou IPCA) é calculada sobre o saldo e adicionada a ele
         correcao_mes = calcular_correcao(saldo_devedor, mes_atual, fase, params, valores_reais)
         saldo_devedor += correcao_mes
         
+        # A correção gerada é distribuída entre as parcelas futuras
         if parcelas_futuras and correcao_mes != 0:
             total_original = sum(p['valor_original'] for p in parcelas_futuras)
             if total_original > 0:
@@ -154,7 +156,6 @@ def simular_financiamento(params, valores_reais=None):
             taxa_juros_mes = mes_pos_chaves_contador / 100.0
             juros_mes = (amortizacao + correcao_paga) * taxa_juros_mes
         
-        # Na lógica antiga, juros não eram adicionados ao saldo devedor
         saldo_devedor = max(saldo_devedor, 0)
 
         historico.append({
@@ -164,7 +165,7 @@ def simular_financiamento(params, valores_reais=None):
             'Parcela Total': pagamento + juros_mes, 
             'Amortização Base': amortizacao,
             'Correção INCC ou IPCA diluída (R$)': correcao_paga, 
-            'Taxa de Juros (%)': taxa_juros_mes * 100 if fase == 'Pós' else 0, # Exibição em %
+            'Taxa de Juros (%)': taxa_juros_mes * 100 if fase == 'Pós' else 0,
             'Juros (R$)': juros_mes, 
             'Ajuste INCC (R$)': correcao_mes if fase in ['Entrada','Pré'] else 0,
             'Ajuste IPCA (R$)': correcao_mes if fase == 'Pós' else 0
