@@ -252,30 +252,69 @@ def buscar_indices_bc(mes_inicial, meses_total):
 # ============================================
 # NOVA LÓGICA DE JUROS DE OBRA
 # ============================================
+def _obter_percentual_obra(mes_obra_atual, prazo_obra_total, metodo, marcos={}):
+    """Calcula o percentual de conclusão da obra para um determinado mês."""
+    if mes_obra_atual <= 0:
+        return 0.0
+    if mes_obra_atual >= prazo_obra_total:
+        return 1.0
+
+    percentual = 0.0
+    if metodo == 'Linear':
+        percentual = mes_obra_atual / prazo_obra_total
+    
+    elif metodo == 'Progressiva (S-Curve)':
+        t = mes_obra_atual / prazo_obra_total
+        percentual = (3 * t**2) - (2 * t**3)
+
+    elif metodo == 'Manual':
+        if not marcos:
+            return 0.0
+        
+        meses_ordenados = sorted(marcos.keys())
+        
+        if mes_obra_atual < meses_ordenados[0]:
+            fator = mes_obra_atual / meses_ordenados[0]
+            percentual = marcos[meses_ordenados[0]] * fator
+        else:
+            mes_anterior, perc_anterior = 0, 0
+            encontrou_intervalo = False
+            for mes_marco in meses_ordenados:
+                if mes_obra_atual >= mes_marco:
+                    mes_anterior, perc_anterior = mes_marco, marcos[mes_marco]
+                else:
+                    mes_seguinte, perc_seguinte = mes_marco, marcos[mes_marco]
+                    if (mes_seguinte - mes_anterior) > 0:
+                        fator = (mes_obra_atual - mes_anterior) / (mes_seguinte - mes_anterior)
+                        percentual = perc_anterior + fator * (perc_seguinte - perc_anterior)
+                    else:
+                        percentual = perc_anterior
+                    encontrou_intervalo = True
+                    break
+            
+            if not encontrou_intervalo:
+                mes_seguinte, perc_seguinte = prazo_obra_total, 100
+                if (mes_seguinte - mes_anterior) > 0:
+                    fator = (mes_obra_atual - mes_anterior) / (mes_seguinte - mes_anterior)
+                    percentual = perc_anterior + fator * (perc_seguinte - perc_anterior)
+                else:
+                    percentual = perc_anterior
+
+        percentual /= 100.0
+    
+    return min(1.0, max(0.0, percentual))
+
 def calcular_juros_obra_detalhado(params_gerais, params_banco, params_construtora, valor_financiado):
     historico = []
-    # --- Parâmetros essenciais ---
     data_assinatura_banco = datetime.strptime(params_gerais['mes_assinatura'], "%m/%Y")
     data_inicio_obra = datetime.combine(params_banco['data_inicio_obra'], datetime.min.time())
     prazo_obra_total_meses = params_banco['prazo_obra_total_meses']
-    perc_obra_inicio_contrato = params_banco['percentual_obra_inicio_contrato'] / 100.0
+    metodo_calculo = params_banco['metodo_calculo_juros']
 
     if prazo_obra_total_meses <= 0: return pd.DataFrame()
 
-    # --- Calcula o período de pagamento de juros para ESTE comprador ---
-    meses_obra_ate_contrato = (data_assinatura_banco.year - data_inicio_obra.year) * 12 + (data_assinatura_banco.month - data_inicio_obra.month)
-    meses_restantes_obra = prazo_obra_total_meses - meses_obra_ate_contrato
-    if meses_restantes_obra <= 0: return pd.DataFrame()
-
-    # --- Parâmetros de cálculo do banco ---
-    taxa_juros_mensal = (params_banco['taxa_juros_anual'] / 100) / 12
-    taxa_admin_mensal_valor = params_banco.get('taxa_admin_mensal', 0)
-    valor_seguro_inicial = params_banco.get('seguro_primeira_parcela', 0)
-    taxa_seguro_mensal_efetiva = valor_seguro_inicial / valor_financiado if valor_financiado > 0 else 0
-    
-    # --- Processa marcos manuais se existirem ---
     marcos = {}
-    if params_banco['metodo_calculo_juros'] == 'Manual':
+    if metodo_calculo == 'Manual':
         try:
             items = params_banco['marcos_liberacao'].replace(" ", "").split(',')
             for item in items:
@@ -285,44 +324,33 @@ def calcular_juros_obra_detalhado(params_gerais, params_banco, params_construtor
             st.error("Formato dos marcos de liberação inválido. Use: 'mes:percentual, mes:percentual'. Ex: '6:20, 12:50'")
             return pd.DataFrame()
 
+    meses_obra_ate_contrato = (data_assinatura_banco.year - data_inicio_obra.year) * 12 + (data_assinatura_banco.month - data_inicio_obra.month)
+    meses_restantes_obra = prazo_obra_total_meses - meses_obra_ate_contrato
+    if meses_restantes_obra <= 0: return pd.DataFrame()
+
+    taxa_juros_mensal = (params_banco['taxa_juros_anual'] / 100) / 12
+    taxa_admin_mensal_valor = params_banco.get('taxa_admin_mensal', 0)
+    valor_seguro_inicial = params_banco.get('seguro_primeira_parcela', 0)
+    taxa_seguro_mensal_efetiva = valor_seguro_inicial / valor_financiado if valor_financiado > 0 else 0
+    
     for i in range(meses_restantes_obra):
         data_corrente = data_assinatura_banco + relativedelta(months=i)
         mes_total_obra_atual = meses_obra_ate_contrato + i + 1
         
-        percentual_conclusao_acumulado = 0
-        # --- Lógica de cálculo do percentual liberado ---
-        if params_banco['metodo_calculo_juros'] == 'Linear':
-            incremento = (1.0 - perc_obra_inicio_contrato) / meses_restantes_obra
-            percentual_conclusao_acumulado = perc_obra_inicio_contrato + (incremento * (i + 1))
+        percentual_conclusao_acumulado = _obter_percentual_obra(
+            mes_obra_atual=mes_total_obra_atual,
+            prazo_obra_total=prazo_obra_total_meses,
+            metodo=metodo_calculo,
+            marcos=marcos
+        )
         
-        elif params_banco['metodo_calculo_juros'] == 'Progressiva (S-Curve)':
-            # Mapeia o progresso do tempo total da obra para uma escala de 0 a 1
-            t = mes_total_obra_atual / prazo_obra_total_meses
-            # Fórmula da S-Curve: f(t) = 3t^2 - 2t^3
-            percentual_conclusao_acumulado = (3 * t**2) - (2 * t**3)
-
-        elif params_banco['metodo_calculo_juros'] == 'Manual':
-            meses_ordenados = sorted(marcos.keys())
-            if not meses_ordenados or mes_total_obra_atual < meses_ordenados[0]:
-                percentual_conclusao_acumulado = perc_obra_inicio_contrato
-            else:
-                mes_anterior, perc_anterior = 0, 0
-                for mes_marco in meses_ordenados:
-                    if mes_total_obra_atual >= mes_marco:
-                        mes_anterior, perc_anterior = mes_marco, marcos[mes_marco]
-                    else:
-                        mes_seguinte, perc_seguinte = mes_marco, marcos[mes_marco]
-                        # Interpolação linear
-                        fator = (mes_total_obra_atual - mes_anterior) / (mes_seguinte - mes_anterior)
-                        percentual_conclusao_acumulado = perc_anterior + fator * (perc_seguinte - perc_anterior)
-                        break
-                else: # Se passou pelo último marco
-                    percentual_conclusao_acumulado = perc_anterior
-            percentual_conclusao_acumulado /= 100.0
-
-
-        # Garante que o percentual não exceda 100% e não seja menor que o inicial
-        percentual_conclusao_acumulado = max(perc_obra_inicio_contrato, min(1.0, percentual_conclusao_acumulado))
+        perc_obra_inicio_contrato = _obter_percentual_obra(
+             mes_obra_atual=meses_obra_ate_contrato,
+             prazo_obra_total=prazo_obra_total_meses,
+             metodo=metodo_calculo,
+             marcos=marcos
+        )
+        percentual_conclusao_acumulado = max(perc_obra_inicio_contrato, percentual_conclusao_acumulado)
 
         saldo_liberado_obra = valor_financiado * percentual_conclusao_acumulado
         juros_obra = saldo_liberado_obra * taxa_juros_mensal
@@ -584,19 +612,21 @@ def criar_parametros_banco(params_construtora):
         params_banco['ipca_medio'] = st.number_input("IPCA média mensal (decimal)", value=0.004669, format="%.6f", help="Usado se não houver dados do SGS")
 
     st.subheader("Parâmetros dos Juros de Obra")
-    jcol1, jcol2 = st.columns(2)
-    with jcol1:
-        params_banco['data_inicio_obra'] = st.date_input("Data de início da obra", value=date(2024, 10, 1))
-        params_banco['prazo_obra_total_meses'] = st.number_input("Prazo total da obra (em meses)", min_value=1, value=20)
-        
-    with jcol2:
-        params_banco['percentual_obra_inicio_contrato'] = st.slider("Percentual da obra na assinatura do seu contrato (%)", 0, 100, 0)
     
     params_banco['metodo_calculo_juros'] = st.selectbox(
-        "Método de Cálculo da Liberação de Recursos",
-        ['Linear', 'Progressiva (S-Curve)', 'Manual'],
+        "Método de Evolução da Obra",
+        ['Progressiva (S-Curve)', 'Linear', 'Manual'],
         index=0, help="Define como o percentual de conclusão da obra evolui. 'S-Curve' é mais realista que 'Linear'."
     )
+    
+    jcol1, jcol2 = st.columns(2)
+    with jcol1:
+        params_banco['data_inicio_obra'] = st.date_input("Data de início da obra (empreendimento)", value=date(2024, 10, 1))
+    with jcol2:
+        params_banco['prazo_obra_total_meses'] = st.number_input("Prazo total da obra (em meses)", min_value=1, value=20)
+        
+    st.caption("Com base nas datas e prazos acima, o sistema estima o percentual de conclusão da obra na data de assinatura do seu contrato.")
+
     if params_banco['metodo_calculo_juros'] == 'Manual':
         params_banco['marcos_liberacao'] = st.text_area(
             "Defina os marcos (mês da obra: % concluído)", 
@@ -762,3 +792,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
