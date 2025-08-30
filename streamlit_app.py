@@ -307,8 +307,13 @@ def _obter_percentual_obra(mes_obra_atual, prazo_obra_total, metodo, marcos={}):
 def calcular_juros_obra_detalhado(params_gerais, params_banco, params_construtora, valor_financiado):
     historico = []
     data_assinatura_banco = datetime.strptime(params_gerais['mes_assinatura'], "%m/%Y")
-    data_inicio_obra = datetime.combine(params_banco['data_inicio_obra'], datetime.min.time())
-    prazo_obra_total_meses = params_banco['prazo_obra_total_meses']
+    data_inicio_obra = datetime.combine(params_construtora['data_inicio_obra'], datetime.min.time())
+    
+    # --- Lógica de cálculo do prazo total da obra ---
+    meses_obra_ate_contrato = (data_assinatura_banco.year - data_inicio_obra.year) * 12 + (data_assinatura_banco.month - data_inicio_obra.month)
+    prazo_restante_obra_usuario = params_construtora.get('num_parcelas_entrada', 0) + params_construtora['meses_pre']
+    prazo_obra_total_meses = meses_obra_ate_contrato + prazo_restante_obra_usuario
+
     metodo_calculo = params_banco['metodo_calculo_juros']
 
     if prazo_obra_total_meses <= 0: return pd.DataFrame()
@@ -324,7 +329,6 @@ def calcular_juros_obra_detalhado(params_gerais, params_banco, params_construtor
             st.error("Formato dos marcos de liberação inválido. Use: 'mes:percentual, mes:percentual'. Ex: '6:20, 12:50'")
             return pd.DataFrame()
 
-    meses_obra_ate_contrato = (data_assinatura_banco.year - data_inicio_obra.year) * 12 + (data_assinatura_banco.month - data_inicio_obra.month)
     meses_restantes_obra = prazo_obra_total_meses - meses_obra_ate_contrato
     if meses_restantes_obra <= 0: return pd.DataFrame()
 
@@ -556,9 +560,10 @@ def simular_cenario_associativo(params_construtora, params_banco, valores_reais=
 # INTERFACE STREAMLIT (MODIFICADA)
 # ============================================
 def criar_parametros():
-    st.sidebar.header("Parâmetros Gerais (Construtora)")
+    st.sidebar.header("Parâmetros Gerais do Imóvel")
     params = {}
-    params['mes_assinatura'] = st.sidebar.text_input("Mês da assinatura (MM/AAAA)", "04/2025")
+    params['data_inicio_obra'] = st.sidebar.date_input("Início da obra (empreendimento)", value=date(2024, 10, 1))
+    params['mes_assinatura'] = st.sidebar.text_input("Mês da assinatura do seu contrato (MM/AAAA)", "04/2025")
     params['mes_primeira_parcela'] = st.sidebar.text_input("Mês da 1ª parcela (MM/AAAA)", "05/2025")
     params['valor_total_imovel'] = st.sidebar.number_input("Valor total do imóvel", value=455750.0, format="%.2f")
     params['valor_entrada'] = st.sidebar.number_input("Valor total da entrada", value=22270.54, format="%.2f")
@@ -573,9 +578,9 @@ def criar_parametros():
     params['incc_medio'] = st.sidebar.number_input("INCC médio mensal (%)", value=0.5446, format="%.4f") / 100
     params['ipca_medio'] = st.sidebar.number_input("IPCA médio mensal (%)", value=0.4669, format="%.4f") / 100
 
-    st.sidebar.subheader("Fases de Pagamento")
+    st.sidebar.subheader("Fases de Pagamento (seu contrato)")
     col1, col2 = st.sidebar.columns(2)
-    params['meses_pre'] = col1.number_input("Meses pré-chaves", value=17)
+    params['meses_pre'] = col1.number_input("Meses pré-chaves", value=17, help="Prazo entre a 1ª parcela e a entrega das chaves.")
     params['meses_pos'] = col2.number_input("Meses pós-chaves", value=100)
     col3, col4 = st.sidebar.columns(2)
     params['parcelas_mensais_pre'] = col3.number_input("Valor parcela pré (R$)", value=3983.38, format="%.2f")
@@ -619,15 +624,10 @@ def criar_parametros_banco(params_construtora):
         index=0, help="Define como o percentual de conclusão da obra evolui. 'S-Curve' é mais realista que 'Linear'."
     )
     
-    jcol1, jcol2 = st.columns(2)
-    with jcol1:
-        params_banco['data_inicio_obra'] = st.date_input("Data de início da obra (empreendimento)", value=date(2024, 10, 1))
-    with jcol2:
-        params_banco['prazo_obra_total_meses'] = st.number_input("Prazo total da obra (em meses)", min_value=1, value=20)
-        
-    st.caption("Com base nas datas e prazos acima, o sistema estima o percentual de conclusão da obra na data de assinatura do seu contrato.")
+    st.caption("A evolução da obra é estimada usando a data de início (parâmetros gerais) e o seu prazo pré-chaves.")
 
     if params_banco['metodo_calculo_juros'] == 'Manual':
+        st.warning("O 'Mês da Obra' nos marcos abaixo é contado a partir do Início da Obra do empreendimento.", icon="⚠️")
         params_banco['marcos_liberacao'] = st.text_area(
             "Defina os marcos (mês da obra: % concluído)", 
             "6:20, 12:50, 18:90",
@@ -792,4 +792,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
