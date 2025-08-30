@@ -657,6 +657,17 @@ def display_detailed_table(df, title):
 def mostrar_comparacao(df_c, df_b, df_comb, df_assoc, cet_c, cet_b, cet_comb, cet_assoc):
     st.header("Resultados da Comparação")
 
+    with st.expander("Clique aqui para entender os cenários de comparação"):
+        st.markdown("""
+        - **🏗️ Construtora:** Simula o fluxo de pagamento completo feito diretamente à construtora, incluindo sua própria lógica de juros pós-chaves. Serve como nosso cenário base.
+
+        - **🏦 Banco (Início):** Simula um financiamento bancário puro, como se o valor total fosse pego no início. **Não considera os pagamentos de entrada feitos à construtora.** Útil para comparar o custo do dinheiro do banco versus o da construtora.
+
+        - **🔑 Financiamento na Entrega (Sequencial):** Representa o modelo onde você primeiro paga toda a fase de obra para a construtora (entrada, mensais, etc.). O saldo devedor restante, já corrigido pelo INCC, é então financiado pelo banco **após a entrega das chaves**. Não há Juros de Obra.
+
+        - **🌱 Financiamento na Planta (Simultâneo):** O modelo mais comum. Você contrata o financiamento no início e, durante a obra, paga **simultaneamente** as parcelas para a construtora e os **Juros de Obra** para o banco. Após as chaves, inicia a amortização do financiamento.
+        """)
+
     c_custo_total = df_c['Parcela Total (R$)'].sum() if not df_c.empty else 0
     b_custo_total = df_b['Parcela Total (R$)'].sum() if not df_b.empty else 0
     comb_custo_total = df_comb['Parcela Total (R$)'].sum() if not df_comb.empty else 0
@@ -678,14 +689,14 @@ def mostrar_comparacao(df_c, df_b, df_comb, df_assoc, cet_c, cet_b, cet_comb, ce
             st.metric("Término", df_b['DataObj'].iloc[-1].strftime("%m/%Y"))
             st.metric("CET (Custo Efetivo Total)", f"{cet_b:.2f}% a.a.")
     with res3:
-        st.subheader("🤝 Combinado")
+        st.subheader("🔑 Financiamento na Entrega")
         if not df_comb.empty:
             st.metric("Custo Total", format_currency(comb_custo_total), delta=format_currency(comb_custo_total - c_custo_total))
             st.metric("Maior Parcela", format_currency(df_comb['Parcela Total (R$)'].max()))
             st.metric("Término", df_comb['DataObj'].iloc[-1].strftime("%m/%Y"))
             st.metric("CET (Custo Efetivo Total)", f"{cet_comb:.2f}% a.a.")
     with res4:
-        st.subheader("🤝🏦 Associativo")
+        st.subheader("🌱 Financiamento na Planta")
         if not df_assoc.empty:
             st.metric("Custo Total", format_currency(assoc_custo_total), delta=format_currency(assoc_custo_total - c_custo_total))
             st.metric("Maior Parcela", format_currency(df_assoc['Parcela Total (R$)'].max()))
@@ -694,7 +705,7 @@ def mostrar_comparacao(df_c, df_b, df_comb, df_assoc, cet_c, cet_b, cet_comb, ce
 
     all_dfs = [
         df[['DataObj', 'Parcela Total (R$)']].rename(columns={'Parcela Total (R$)': name})
-        for df, name in [(df_c, 'Construtora'), (df_b, 'Banco (Início)'), (df_comb, 'Combinado'), (df_assoc, 'Associativo')] if not df.empty
+        for df, name in [(df_c, 'Construtora'), (df_b, 'Banco (Início)'), (df_comb, 'Financ. na Entrega'), (df_assoc, 'Financ. na Planta')] if not df.empty
     ]
     if all_dfs:
         df_merged = all_dfs[0]
@@ -707,8 +718,8 @@ def mostrar_comparacao(df_c, df_b, df_comb, df_assoc, cet_c, cet_b, cet_comb, ce
     st.subheader("Análise Detalhada dos Fluxos de Pagamento")
     if not df_c.empty: display_detailed_table(df_c, "Construtora")
     if not df_b.empty: display_detailed_table(df_b, "Banco (Início)")
-    if not df_comb.empty: display_detailed_table(df_comb, "Combinado")
-    if not df_assoc.empty: display_detailed_table(df_assoc, "Associativo")
+    if not df_comb.empty: display_detailed_table(df_comb, "Financiamento na Entrega")
+    if not df_assoc.empty: display_detailed_table(df_assoc, "Financiamento na Planta")
 
 def main():
     st.set_page_config(layout="wide", page_title="Simulador e Comparador de Financiamento")
@@ -797,4 +808,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
