@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 import sgs
-from dateutil.relivedelta import relativedelta
+from dateutil.relativedelta import relativedelta
 
 # ============================================
 # FUNÇÕES UTILITÁRIAS
