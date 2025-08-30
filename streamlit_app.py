@@ -592,37 +592,36 @@ def main():
             st.session_state.df_combinado = simular_cenario_combinado(params.copy(), params_banco, real_values)
             
             # --- CÁLCULO DO CET ---
+            # Uma abordagem unificada para modelar o fluxo de caixa para a TIR.
+            # O fluxo de caixa é composto pelo valor do bem (entrada) e todos os pagamentos (saídas).
+            # Eventos no "tempo zero" (como a entrada) são agrupados.
+
             # Cenário 1: Construtora
             if not st.session_state.df_resultado.empty:
-                valor_imovel = sim_params['valor_total_imovel']
-                pagamentos_df = st.session_state.df_resultado
-                
-                if sim_params['tipo_pagamento_entrada'] == 'Paga no ato':
-                    valor_financiado = valor_imovel - sim_params['valor_entrada']
-                    pagamentos = pagamentos_df['Parcela Total'].iloc[1:].tolist()
-                else:
-                    valor_financiado = valor_imovel
-                    pagamentos = pagamentos_df['Parcela Total'].tolist()
-                st.session_state.cet_construtora = calcular_cet(valor_financiado, pagamentos)
+                pagamentos_df_c = st.session_state.df_resultado
+                # O primeiro pagamento ('Assinatura') ocorre no tempo zero.
+                pagamento_t0_c = pagamentos_df_c['Parcela Total'].iloc[0]
+                # O valor líquido financiado no tempo zero é o valor do imóvel menos o que foi pago no ato.
+                valor_financiado_liquido_c = sim_params['valor_total_imovel'] - pagamento_t0_c
+                # Os pagamentos futuros são todas as parcelas subsequentes.
+                pagamentos_futuros_c = pagamentos_df_c['Parcela Total'].iloc[1:].tolist()
+                st.session_state.cet_construtora = calcular_cet(valor_financiado_liquido_c, pagamentos_futuros_c)
 
             # Cenário 2: Banco (Início)
             if not st.session_state.df_banco.empty:
+                # O fluxo do banco é mais simples: o valor financiado contra as parcelas do banco.
                 valor_financiado_b = params_gerais['valor_total_imovel'] - params_gerais['valor_entrada']
                 pagamentos_b = st.session_state.df_banco['Parcela Total'].tolist()
                 st.session_state.cet_banco = calcular_cet(valor_financiado_b, pagamentos_b)
 
             # Cenário 3: Combinado
             if not st.session_state.df_combinado.empty:
-                valor_imovel_comb = sim_params['valor_total_imovel']
-                pagamentos_comb_df = st.session_state.df_combinado
-                
-                if sim_params['tipo_pagamento_entrada'] == 'Paga no ato':
-                    valor_financiado_comb = valor_imovel_comb - sim_params['valor_entrada']
-                    pagamentos_comb = pagamentos_comb_df['Parcela Total'].iloc[1:].tolist()
-                else:
-                    valor_financiado_comb = valor_imovel_comb
-                    pagamentos_comb = pagamentos_comb_df['Parcela Total'].tolist()
-                st.session_state.cet_combinado = calcular_cet(valor_financiado_comb, pagamentos_comb)
+                pagamentos_df_comb = st.session_state.df_combinado
+                # A lógica é a mesma da construtora.
+                pagamento_t0_comb = pagamentos_df_comb['Parcela Total'].iloc[0]
+                valor_financiado_liquido_comb = sim_params['valor_total_imovel'] - pagamento_t0_comb
+                pagamentos_futuros_comb = pagamentos_df_comb['Parcela Total'].iloc[1:].tolist()
+                st.session_state.cet_combinado = calcular_cet(valor_financiado_liquido_comb, pagamentos_futuros_comb)
 
     col1, col2, col3, col4 = st.columns(4)
     with col1:
@@ -668,4 +667,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
