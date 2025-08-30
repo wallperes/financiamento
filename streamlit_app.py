@@ -187,7 +187,10 @@ def simular_financiamento(params, valores_reais=None):
                     p['correcao_acumulada'] += correcao_mes * (p['valor_original'] / total_original)
 
         taxa_juros_mes, juros_mes = 0.0, 0.0
-        # A lógica de juros da construtora foi removida para ser substituída pela do banco.
+        if fase == 'Pós':
+            mes_pos_chaves_contador += 1
+            taxa_juros_mes = mes_pos_chaves_contador / 100.0
+            juros_mes = (amortizacao + correcao_paga) * taxa_juros_mes
         
         saldo_devedor = max(saldo_devedor, 0)
 
@@ -195,11 +198,11 @@ def simular_financiamento(params, valores_reais=None):
             'DataObj': data_mes,
             'Mês/Data': f"{mes_atual} - [{data_mes.strftime('%m/%Y')}]",
             'Fase': fase, 'Saldo Devedor': saldo_devedor,
-            'Parcela Total (R$)': pagamento,
+            'Parcela Total (R$)': pagamento + juros_mes,
             'Amortização Base (R$)': amortizacao,
             'Correção Monetária Paga (R$)': correcao_paga,
-            'Taxa de Juros (%)': 0,
-            'Juros (R$)': 0,
+            'Taxa de Juros (%)': taxa_juros_mes * 100 if fase == 'Pós' else 0,
+            'Juros (R$)': juros_mes,
             'Correção Monetária Gerada (R$)': correcao_mes,
             'Índice Correção': indice_mes,
             'Encargos (R$)': 0
@@ -209,6 +212,7 @@ def simular_financiamento(params, valores_reais=None):
             verificar_quitacao_pre(params, amortizacao_total_acumulada)
 
     return pd.DataFrame(historico)
+
 
 # ============================================
 # BUSCAR ÍNDICES BC (INCC, IPCA, TR)
@@ -573,10 +577,11 @@ def criar_parametros():
         params['entrada_mensal'] = params['valor_entrada'] / params['num_parcelas_entrada'] if params['num_parcelas_entrada'] > 0 else 0
     else:
         params['num_parcelas_entrada'] = 0; params['entrada_mensal'] = 0
-    st.sidebar.subheader("Parâmetros de Correção")
+    st.sidebar.subheader("Parâmetros de Correção e Juros")
     params['inicio_correcao'] = st.sidebar.number_input("Aplicar correção a partir de qual parcela?", min_value=1, value=1)
     params['incc_medio'] = st.sidebar.number_input("INCC médio mensal (%)", value=0.5446, format="%.4f") / 100
     params['ipca_medio'] = st.sidebar.number_input("IPCA médio mensal (%)", value=0.4669, format="%.4f") / 100
+    st.sidebar.number_input("Juros Pós-Chaves (% a.a.)", value=12.0, format="%.2f", disabled=True, help="Na lógica de cálculo atual, os juros são progressivos e não baseados nesta taxa fixa.")
 
     st.sidebar.subheader("Fases de Pagamento (seu contrato)")
     col1, col2 = st.sidebar.columns(2)
@@ -792,3 +797,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
