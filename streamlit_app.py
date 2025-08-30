@@ -555,22 +555,41 @@ def main():
             st.session_state.df_combinado = simular_cenario_combinado(params.copy(), params_banco, real_values)
             
             # --- CÁLCULO DO CET ---
-            # Cenário 1: Construtora - considera o valor total do imóvel vs todos os pagamentos
+            # Cenário 1: Construtora
             valor_imovel_c = sim_params['valor_total_imovel']
-            pagamentos_c = st.session_state.df_resultado['Parcela Total'].tolist()
-            st.session_state.cet_construtora = calcular_cet(valor_imovel_c, pagamentos_c)
+            pagamentos_c_df = st.session_state.df_resultado
+            
+            entrada_no_ato_c = 0
+            # Se a entrada for paga no ato, ela é o primeiro pagamento e deve ser tratada no tempo zero
+            if sim_params['tipo_pagamento_entrada'] == 'Paga no ato':
+                entrada_no_ato_c = pagamentos_c_df['Parcela Total'].iloc[0] if not pagamentos_c_df.empty else 0
+                pagamentos_parcelados_c = pagamentos_c_df['Parcela Total'].iloc[1:].tolist()
+            else: # Se for parcelada, todos os pagamentos entram no fluxo
+                pagamentos_parcelados_c = pagamentos_c_df['Parcela Total'].tolist()
+            
+            # O valor financiado líquido é o total do imóvel menos a entrada paga no ato
+            valor_financiado_liquido_c = valor_imovel_c - entrada_no_ato_c
+            st.session_state.cet_construtora = calcular_cet(valor_financiado_liquido_c, pagamentos_parcelados_c)
 
-            # Cenário 2: Banco (Início) - considera o valor financiado vs pagamentos ao banco
+            # Cenário 2: Banco (Início) - O fluxo já é o correto: valor financiado vs parcelas
             if not st.session_state.df_banco.empty:
                 valor_financiado_b = params_gerais['valor_total_imovel'] - params_gerais['valor_entrada']
                 pagamentos_b = st.session_state.df_banco['Parcela Total'].tolist()
                 st.session_state.cet_banco = calcular_cet(valor_financiado_b, pagamentos_b)
 
-            # Cenário 3: Combinado - considera o valor total do imóvel vs todos os pagamentos
+            # Cenário 3: Combinado - A lógica é a mesma da construtora
             if not st.session_state.df_combinado.empty:
-                valor_imovel_comb = sim_params['valor_total_imovel']
-                pagamentos_comb = st.session_state.df_combinado['Parcela Total'].tolist()
-                st.session_state.cet_combinado = calcular_cet(valor_imovel_comb, pagamentos_comb)
+                pagamentos_comb_df = st.session_state.df_combinado
+                entrada_no_ato_comb = 0
+                if sim_params['tipo_pagamento_entrada'] == 'Paga no ato':
+                    entrada_no_ato_comb = pagamentos_comb_df['Parcela Total'].iloc[0] if not pagamentos_comb_df.empty else 0
+                    pagamentos_parcelados_comb = pagamentos_comb_df['Parcela Total'].iloc[1:].tolist()
+                else:
+                    pagamentos_parcelados_comb = pagamentos_comb_df['Parcela Total'].tolist()
+
+                valor_financiado_liquido_comb = valor_imovel_c - entrada_no_ato_comb
+                st.session_state.cet_combinado = calcular_cet(valor_financiado_liquido_comb, pagamentos_parcelados_comb)
+
 
     col1, col2, col3, col4 = st.columns(4)
     with col1:
@@ -616,3 +635,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
