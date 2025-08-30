@@ -22,7 +22,7 @@ def converter_juros_anual_para_mensal(taxa_anual):
     return (1 + taxa_anual)**(1/12) - 1
 
 # ============================================
-# LÓGICA DE SIMULAÇÃO - CONSTRUTORA
+# LÓGICA DE SIMULAÇÃO - CONSTRUTORA (LÓGICA DE CÁLCULO ANTIGA RESTAURADA)
 # ============================================
 
 def construir_parcelas_futuras(params):
@@ -126,6 +126,7 @@ def simular_financiamento(params, valores_reais=None):
 
     num_parcelas_entrada = params.get('num_parcelas_entrada', 0)
     total_meses_pagamento = num_parcelas_entrada + params['meses_pre'] + params['meses_pos']
+    mes_pos_chaves_contador = 0
     
     for mes_atual in range(1, total_meses_pagamento + 1):
         data_mes = data_primeira_parcela + relativedelta(months=mes_atual-1)
@@ -148,12 +149,26 @@ def simular_financiamento(params, valores_reais=None):
         
         taxa_juros_mes, juros_mes = 0.0, 0.0
         if fase == 'Pós':
-            taxa_juros_mes = converter_juros_anual_para_mensal(params['juros_pos_chaves_anual'])
-            juros_mes = saldo_devedor * taxa_juros_mes
+            mes_pos_chaves_contador += 1
+            # LÓGICA DE JUROS ANTIGA RESTAURADA
+            taxa_juros_mes = mes_pos_chaves_contador / 100.0
+            juros_mes = (amortizacao + correcao_paga) * taxa_juros_mes
         
-        saldo_devedor += juros_mes
+        # Na lógica antiga, juros não eram adicionados ao saldo devedor
         saldo_devedor = max(saldo_devedor, 0)
-        historico.append({'DataObj': data_mes, 'Mês/Data': f"{mes_atual} - [{data_mes.strftime('%m/%Y')}]", 'Fase': fase, 'Saldo Devedor': saldo_devedor, 'Parcela Total': pagamento + juros_mes, 'Amortização Base': amortizacao, 'Correção INCC ou IPCA diluída (R$)': correcao_paga, 'Taxa de Juros (%)': taxa_juros_mes * 100 if fase == 'Pós' else 0, 'Juros (R$)': juros_mes, 'Ajuste INCC (R$)': correcao_mes if fase in ['Entrada','Pré'] else 0, 'Ajuste IPCA (R$)': correcao_mes if fase == 'Pós' else 0})
+
+        historico.append({
+            'DataObj': data_mes, 
+            'Mês/Data': f"{mes_atual} - [{data_mes.strftime('%m/%Y')}]", 
+            'Fase': fase, 'Saldo Devedor': saldo_devedor,
+            'Parcela Total': pagamento + juros_mes, 
+            'Amortização Base': amortizacao,
+            'Correção INCC ou IPCA diluída (R$)': correcao_paga, 
+            'Taxa de Juros (%)': taxa_juros_mes * 100 if fase == 'Pós' else 0, # Exibição em %
+            'Juros (R$)': juros_mes, 
+            'Ajuste INCC (R$)': correcao_mes if fase in ['Entrada','Pré'] else 0,
+            'Ajuste IPCA (R$)': correcao_mes if fase == 'Pós' else 0
+        })
         
         if fase == 'Pré' and mes_atual == num_parcelas_entrada + params['meses_pre']:
             verificar_quitacao_pre(params, amortizacao_total_acumulada)
@@ -346,7 +361,8 @@ def criar_parametros():
     params['inicio_correcao'] = st.sidebar.number_input("Aplicar correção a partir de qual parcela?", min_value=1, value=1)
     params['incc_medio'] = st.sidebar.number_input("INCC médio mensal (%)", value=0.5446, format="%.4f") / 100
     params['ipca_medio'] = st.sidebar.number_input("IPCA médio mensal (%)", value=0.4669, format="%.4f") / 100
-    params['juros_pos_chaves_anual'] = st.sidebar.number_input("Juros Pós-Chaves (% a.a.)", value=12.0, format="%.2f") / 100
+    # O parâmetro de juros anual não é mais usado na lógica antiga, mas pode ser mantido na UI para referência
+    st.sidebar.number_input("Juros Pós-Chaves (% a.a.)", value=12.0, format="%.2f", disabled=True, help="Na lógica de cálculo atual, os juros são progressivos e não baseados nesta taxa fixa.")
 
     st.sidebar.subheader("Fases de Pagamento")
     col1, col2 = st.sidebar.columns(2)
@@ -494,3 +510,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
