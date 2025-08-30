@@ -196,6 +196,9 @@ def simular_financiamento(params, valores_reais=None):
     num_parcelas_entrada = params['num_parcelas_entrada'] if params['tipo_pagamento_entrada'] == 'Parcelada' else 0
     total_meses_pagamento = num_parcelas_entrada + params['meses_pre'] + params['meses_pos']
     
+    # >>>>> CORREÇÃO APLICADA AQUI <<<<<
+    mes_pos_chaves_contador = 0
+
     for mes_atual in range(1, total_meses_pagamento + 1):
         data_mes = data_primeira_parcela + relativedelta(months=mes_atual-1)
         data_str = data_mes.strftime("%m/%Y")
