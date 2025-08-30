@@ -342,10 +342,19 @@ def criar_parametros():
         params['num_parcelas_entrada'] = 0
         params['entrada_mensal'] = 0
 
+    st.sidebar.subheader("Parâmetros de Correção")
+
+    # >>> ALTERAÇÃO: Rótulo e ajuda do campo foram alterados para clareza.
     params['inicio_correcao'] = st.sidebar.number_input(
-        "Mês de início da correção (após 1ª parcela)", min_value=0, value=1, step=1,
-        help="A partir de qual parcela a correção deve começar. Insira 0 ou 1 para contar desde a primeira."
+        label="Aplicar correção a partir de qual parcela?", 
+        min_value=1, 
+        value=1, 
+        step=1,
+        help="Define o número da parcela a partir da qual a correção (INCC/IPCA) começa. Ex: Se a entrada tem 3x, '1' inicia a correção na 1ª da entrada; '4' inicia na 1ª pós-entrada."
     )
+    
+    params['incc_medio'] = st.sidebar.number_input("INCC médio mensal (%)", value=0.5446, step=0.01, format="%.4f", help="Taxa média mensal estimada para o INCC.") / 100
+    params['ipca_medio'] = st.sidebar.number_input("IPCA médio mensal (%)", value=0.4669, step=0.01, format="%.4f", help="Taxa média mensal estimada para o IPCA.") / 100
 
     st.sidebar.subheader("Fases de Pagamento")
     col1, col2 = st.sidebar.columns(2)
@@ -382,10 +391,6 @@ def criar_parametros():
         valor_anu = col_anu2.number_input("Valor anual (R$)", min_value=0.0, value=43300.0, key="anu_val", format="%.2f")
     if mes_anu > 0 and valor_anu > 0:
         params['parcelas_anuais'][int(mes_anu)] = valor_anu
-
-    st.sidebar.subheader("Parâmetros de Correção (Estimativas)")
-    params['incc_medio'] = st.sidebar.number_input("INCC médio mensal (%)", value=0.5446, step=0.01, format="%.4f") / 100
-    params['ipca_medio'] = st.sidebar.number_input("IPCA médio mensal (%)", value=0.4669, step=0.01, format="%.4f") / 100
     
     params['percentual_minimo_quitacao'] = 0.3
     params['limite_correcao'] = None
