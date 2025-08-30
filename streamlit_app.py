@@ -73,7 +73,7 @@ def construir_parcelas_futuras(params):
 
 def calcular_correcao(saldo, mes, fase, params, valores_reais):
     """
-    Calcula correção monetária, respeitando o mês de início definido pelo usuário.
+    Calcula correção monetária, respeitando o mês de início e os limites definidos.
     """
     if fase not in ['Assinatura', 'Carência']:
         inicio_correcao = params.get('inicio_correcao', 1)
@@ -86,18 +86,16 @@ def calcular_correcao(saldo, mes, fase, params, valores_reais):
     if limite is not None and mes > limite:
         return 0
     
+    # Se houver valores reais, eles têm prioridade
     if valores_reais is not None and mes in valores_reais:
         idx = valores_reais[mes]
         if fase in ['Entrada','Pré', 'Carência'] and idx.get('incc') is not None:
             return saldo * idx['incc']
         elif fase == 'Pós' and idx.get('ipca') is not None:
             return saldo * idx['ipca']
-        elif params.get('limite_simulacao') is not None:
-            return 0
 
-    if params.get('limite_simulacao') is not None:
-        return 0
-
+    # Se a simulação for Híbrida, usa a média como fallback.
+    # Se for Pura (com limite_correcao definido pelo BC), não deve chegar aqui se o limite for ultrapassado.
     if fase in ['Entrada','Pré', 'Carência']:
         return saldo * params['incc_medio']
     elif fase == 'Pós':
@@ -107,7 +105,7 @@ def calcular_correcao(saldo, mes, fase, params, valores_reais):
 
 def processar_parcelas_vencidas(parcelas_futuras, mes_atual):
     """
-    Processas parcelas vencidas
+    Processa as parcelas vencidas do mês, retornando os totais.
     """
     vencidas = [p for p in parcelas_futuras if p['mes'] == mes_atual]
     pagamento_total, amortizacao_total, correcao_paga_total = 0, 0, 0
@@ -121,7 +119,7 @@ def processar_parcelas_vencidas(parcelas_futuras, mes_atual):
 
 def verificar_quitacao_pre(params, total_amortizado_acumulado):
     """
-    Verifica quitacao mínima
+    Verifica se o percentual mínimo de quitação na fase pré-chaves foi atingido.
     """
     percentual = total_amortizado_acumulado / params['valor_total_imovel']
     if percentual < params['percentual_minimo_quitacao']:
@@ -134,7 +132,7 @@ def verificar_quitacao_pre(params, total_amortizado_acumulado):
 
 def simular_financiamento(params, valores_reais=None):
     """
-    Executa a simulação completa com a nova lógica de assinatura e carência.
+    Executa a simulação completa do financiamento.
     """
     historico = []
     
@@ -191,13 +189,8 @@ def simular_financiamento(params, valores_reais=None):
     num_parcelas_entrada = params.get('num_parcelas_entrada', 0)
     total_meses_pagamento = num_parcelas_entrada + params['meses_pre'] + params['meses_pos']
     mes_pos_chaves_contador = 0
-    limite_simulacao = params.get('limite_simulacao')
 
     for mes_atual in range(1, total_meses_pagamento + 1):
-        if limite_simulacao is not None and mes_atual > limite_simulacao:
-            st.info(f"Simulação interrompida na parcela {limite_simulacao} conforme o último dado real disponível.")
-            break
-
         data_mes = data_primeira_parcela + relativedelta(months=mes_atual-1)
         if mes_atual <= num_parcelas_entrada: fase = 'Entrada'
         elif mes_atual <= num_parcelas_entrada + params['meses_pre']: fase = 'Pré'
@@ -382,13 +375,14 @@ def main():
             st.session_state.df_resultado = simular_financiamento(params.copy(), valores_reais)
 
     with col3:
-        if st.button("3. Simular Apenas com BC (Histórico)", use_container_width=True, help="Usa *somente* os dados históricos do BC. A simulação para quando os dados acabam."):
+        if st.button("3. Simular Apenas com BC (Puro)", use_container_width=True, help="Usa *somente* os dados históricos do BC. Após os dados reais, a simulação continua, mas sem gerar novas correções."):
             num_parcelas_entrada = params.get('num_parcelas_entrada', 0)
             total_meses = num_parcelas_entrada + params['meses_pre'] + params['meses_pos']
             valores_reais, ultimo_mes, _ = buscar_indices_bc(params['mes_primeira_parcela'], total_meses)
             if ultimo_mes > 0:
                 params_sim = params.copy()
-                params_sim['limite_simulacao'] = ultimo_mes
+                params_sim['limite_correcao'] = ultimo_mes # Define o limite de NOVAS correções
+                st.info(f"Dados reais do BC aplicados até a parcela {ultimo_mes}. Após isso, não haverá novas correções.")
                 st.session_state.df_resultado = simular_financiamento(params_sim, valores_reais)
             else:
                 st.warning("Nenhum dado histórico encontrado no período para realizar a simulação.")
@@ -396,7 +390,7 @@ def main():
     
     with col4:
         limite_manual = st.number_input("Limite Manual de Correção", min_value=1, value=params['meses_pre'] + params.get('num_parcelas_entrada', 0))
-        if st.button("4. Simular com Limite de Correção", use_container_width=True, help="Para a correção (INCC/IPCA) na parcela definida manualmente."):
+        if st.button("4. Simular com Limite", use_container_width=True, help="Para a correção (INCC/IPCA) na parcela definida manualmente, usando as médias."):
             params_sim = params.copy()
             params_sim['limite_correcao'] = limite_manual
             st.session_state.df_resultado = simular_financiamento(params_sim)
