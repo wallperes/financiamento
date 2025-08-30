@@ -328,7 +328,8 @@ def simular_financiamento_bancario_completo(params_gerais, params_banco, params_
 
         parcela_total = amortizacao + juros + encargos + ajuste_index
         saldo_devedor_anterior = saldo_devedor
-        saldo_devedor = max(saldo_devedor - amortizacao + ajuste_index, 0)
+        # CORREÇÃO: A correção monetária (ajuste_index) é paga na parcela, não capitalizada.
+        saldo_devedor = max(saldo_devedor - amortizacao, 0)
         
         historico.append({'DataObj': data_corrente, 'Mês/Data': f"{i+1} - [{data_corrente.strftime('%m/%Y')}]", 'Fase': f'Amortização {sistema}', 'Saldo Devedor': saldo_devedor, 'Amortização Base (R$)': amortizacao, 'Juros (R$)': juros, 'Correção Monetária Paga (R$)': 0, 'Encargos (R$)': encargos, 'Parcela Total (R$)': parcela_total, 'Correção Monetária Gerada (R$)': ajuste_index, 'Índice Correção': indice_aplicado, 'Taxa de Juros (%)': taxa_juros_mensal * 100})
         
