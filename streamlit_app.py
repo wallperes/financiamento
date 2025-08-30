@@ -448,6 +448,23 @@ def mostrar_comparacao(df_c, df_b, df_comb):
     st.subheader("Evolução Comparativa das Parcelas")
     st.line_chart(df_merged.set_index('DataObj'))
 
+    st.subheader("Tabelas Detalhadas dos Cenários Comparativos")
+    with st.expander("🏦 Ver Tabela - Banco (Início)"):
+        df_b_display = df_b[['DataObj', 'Fase', 'Parcela Total', 'Custo Acumulado']].copy()
+        df_b_display['DataObj'] = df_b_display['DataObj'].dt.strftime('%m/%Y')
+        st.dataframe(df_b_display.style.format({
+            "Parcela Total": format_currency,
+            "Custo Acumulado": format_currency
+        }), use_container_width=True, height=350)
+
+    with st.expander("🤝 Ver Tabela - Combinado"):
+        df_comb_display = df_comb[['DataObj', 'Fase', 'Parcela Total', 'Custo Acumulado']].copy()
+        df_comb_display['DataObj'] = df_comb_display['DataObj'].dt.strftime('%m/%Y')
+        st.dataframe(df_comb_display.style.format({
+            "Parcela Total": format_currency,
+            "Custo Acumulado": format_currency
+        }), use_container_width=True, height=350)
+
 def main():
     st.set_page_config(layout="wide", page_title="Simulador e Comparador de Financiamento")
     st.title("Simulador de Financiamento Imobiliário 🚧🏗️")
@@ -510,4 +527,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
