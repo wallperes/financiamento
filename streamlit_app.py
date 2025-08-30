@@ -8,7 +8,7 @@ import sgs
 from dateutil.relativedelta import relativedelta
 
 # ============================================
-# FASE 0.5: FUNÇÕES UTILITÁRIAS (NOVAS E MANTIDAS)
+# FUNÇÕES UTILITÁRIAS
 # ============================================
 
 def format_currency(value):
@@ -18,12 +18,12 @@ def format_currency(value):
     return f"R$ {value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 def converter_juros_anual_para_mensal(taxa_anual):
-    """(NOVA) Converte uma taxa de juros anual para a taxa efetiva mensal."""
-    if taxa_anual <= -1: return -1 # Evita erro de domínio matemático
+    """Converte uma taxa de juros anual para a taxa efetiva mensal."""
+    if taxa_anual <= -1: return -1
     return (1 + taxa_anual)**(1/12) - 1
 
 def buscar_indices_bc_original(mes_inicial, meses_total):
-    """(MANTIDA) Função original para buscar INCC e IPCA, agora mais robusta."""
+    """Busca INCC e IPCA da API do Banco Central."""
     try:
         data_inicio_simulacao = datetime.strptime(mes_inicial, "%m/%Y").replace(day=1)
         data_inicio_busca = data_inicio_simulacao - relativedelta(months=2)
@@ -61,9 +61,8 @@ def buscar_indices_bc_original(mes_inicial, meses_total):
 
 
 # ============================================
-# LÓGICA ORIGINAL DA CONSTRUTORA (100% PRESERVADA)
+# LÓGICA ORIGINAL DA CONSTRUTORA (PRESERVADA)
 # ============================================
-# Todas as funções a seguir são do código original, garantindo que os cálculos não mudaram.
 
 def construir_parcelas_futuras_original(params):
     parcelas = []
@@ -126,7 +125,7 @@ def verificar_quitacao_pre_original(params, total_amortizado_acumulado):
         st.warning(f"Atenção: valor quitado na pré ({valor_fmt}) equivale a {percentual*100:.2f}% do valor do imóvel, abaixo de {params['percentual_minimo_quitacao']*100:.0f}%.")
 
 def simular_financiamento_construtora(params, valores_reais=None):
-    """(MANTIDA) Função de simulação principal do código original, 100% preservada."""
+    """Função de simulação principal do código original, 100% preservada."""
     historico = []
     try:
         data_assinatura = datetime.strptime(params['mes_assinatura'], "%m/%Y")
@@ -195,7 +194,6 @@ def simular_financiamento_construtora(params, valores_reais=None):
                 for p in parcelas_futuras:
                     p['correcao_acumulada'] += correcao_mes * (p['valor_original'] / total_original_restante)
         
-        # LÓGICA DE JUROS PÓS-CHAVES ORIGINAL RESTAURADA
         taxa_juros_mes, juros_mes = 0.0, 0.0
         if fase == 'Pós-Chaves':
             mes_pos_chaves_contador += 1
@@ -218,10 +216,10 @@ def simular_financiamento_construtora(params, valores_reais=None):
 
 
 # ============================================
-# FASE 0: LÓGICA DO FINANCIAMENTO BANCÁRIO (NOVO MÓDULO)
+# LÓGICA DO FINANCIAMENTO BANCÁRIO (NOVO MÓDULO)
 # ============================================
 def simular_financiamento_bancario(params_caixa):
-    """(NOVA) Executa a simulação do financiamento bancário."""
+    """Executa a simulação do financiamento bancário."""
     if params_caixa['modo_entrada'] == 'Simplificado':
         if params_caixa['primeira_parcela'] <= params_caixa['ultima_parcela']:
             st.error("Erro: A 'Primeira Parcela' deve ser maior que a 'Última Parcela' no Modo Simplificado.")
@@ -254,7 +252,7 @@ def simular_financiamento_bancario(params_caixa):
         encargos_fixos_mensais = params_caixa['primeira_parcela'] - (amortizacao_constante + primeiros_juros)
     
     for _ in range(1, params_caixa['prazo_meses'] + 1):
-        saldo_devedor_corrigido = saldo_devedor # Simplificação: correção TR/IPCA não implementada no banco por enquanto
+        saldo_devedor_corrigido = saldo_devedor
         juros = saldo_devedor_corrigido * taxa_juros_mensal
         
         if params_caixa['modo_entrada'] == 'Avançado':
@@ -277,7 +275,7 @@ def simular_financiamento_bancario(params_caixa):
     return pd.DataFrame(historico)
 
 # ============================================
-# INTERFACE STREAMLIT (REESTRUTURADA)
+# INTERFACE STREAMLIT
 # ============================================
 
 def inicializar_session_state():
@@ -324,17 +322,35 @@ def criar_parametros_construtora():
     return params
 
 def mostrar_resultados_originais(df_resultado):
-    """(MANTIDA) Função de exibição original."""
+    """Função de exibição original, AGORA CORRIGIDA para usar column_config."""
     st.subheader("Tabela de Simulação Detalhada (Construtora)")
-    colunas = ['Mês/Data', 'Fase', 'Saldo Devedor', 'Ajuste INCC (R$)', 'Ajuste IPCA (R$)', 'Correção INCC ou IPCA diluída (R$)', 'Amortização Base', 'Taxa de Juros (%)', 'Juros (R$)', 'Parcela Total']
-    df_display = df_resultado[colunas].copy()
-    for col in ['Saldo Devedor', 'Ajuste INCC (R$)', 'Ajuste IPCA (R$)', 'Correção INCC ou IPCA diluída (R$)', 'Amortização Base', 'Juros (R$)', 'Parcela Total']:
-        df_display[col] = df_display[col].apply(format_currency)
-    df_display['Taxa de Juros (%)'] = df_resultado['Taxa de Juros (%)'].apply(lambda x: f"{x:.2%}" if x > 0 else "N/A")
-    st.dataframe(df_display, use_container_width=True, height=400)
+    
+    df_display = df_resultado[['Mês/Data', 'Fase', 'Saldo Devedor', 'Ajuste INCC (R$)', 'Ajuste IPCA (R$)', 'Correção INCC ou IPCA diluída (R$)', 'Amortização Base', 'Taxa de Juros (%)', 'Juros (R$)', 'Parcela Total']].copy()
+
+    st.dataframe(
+        df_display,
+        column_config={
+            "Saldo Devedor": st.column_config.NumberColumn(format="R$ %.2f"),
+            "Ajuste INCC (R$)": st.column_config.NumberColumn(format="R$ %.2f"),
+            "Ajuste IPCA (R$)": st.column_config.NumberColumn(format="R$ %.2f"),
+            "Correção INCC ou IPCA diluída (R$)": st.column_config.NumberColumn(format="R$ %.2f"),
+            "Amortização Base": st.column_config.NumberColumn(format="R$ %.2f"),
+            "Juros (R$)": st.column_config.NumberColumn(format="R$ %.2f"),
+            "Parcela Total": st.column_config.NumberColumn(format="R$ %.2f"),
+            "Taxa de Juros (%)": st.column_config.ProgressColumn(
+                "Taxa de Juros (%)",
+                format="%.2f%%",
+                min_value=0,
+                max_value=float(df_display["Taxa de Juros (%)"].max() * 100) if not df_display["Taxa de Juros (%)"].empty else 1,
+            ),
+        },
+        use_container_width=True,
+        height=400
+    )
+
 
 def mostrar_graficos_comparativos(df_unificado, df_banco):
-    """(NOVA) Exibe os gráficos comparativos."""
+    """Exibe os gráficos comparativos."""
     st.header("📊 Gráficos Comparativos")
     df_unificado['Tipo'] = np.where(df_unificado['Fase'].isin(['Financiamento Bancário', 'Taxa de Obra']), 'Financiamento Bancário', 'Fluxo Construtora')
     df_plot_parcela = df_unificado.pivot_table(index='DataObj', columns='Tipo', values='Parcela Total').reset_index()
@@ -360,7 +376,6 @@ def main():
 
     with tab1:
         st.header("Opções de Simulação (Fluxo Construtora)")
-        # --- UI ORIGINAL 100% RESTAURADA ---
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             if st.button("1. Simular com Médias", type="primary", use_container_width=True):
@@ -440,7 +455,7 @@ def main():
             st.session_state.df_banco = simular_financiamento_bancario(params_caixa)
             if not st.session_state.df_banco.empty:
                 if params_caixa['cenario'] == 'Financiar Pós-Chaves' and not st.session_state.df_resultado.empty:
-                    df_c_norm = st.session_state.df_resultado.rename(columns={'DataObj': 'DataObj', 'Amortização Base': 'Amortização', 'Juros (R$)': 'Juros'})
+                    df_c_norm = st.session_state.df_resultado.rename(columns={'Amortização Base': 'Amortização', 'Juros (R$)': 'Juros'})
                     df_b_norm = st.session_state.df_banco
                     df_c_norm['Encargos'] = df_c_norm['Correção INCC ou IPCA diluída (R$)']
                     st.session_state.df_unificado = pd.concat([df_c_norm, df_b_norm], ignore_index=True)
@@ -449,10 +464,19 @@ def main():
 
         if not st.session_state.df_unificado.empty:
             st.subheader("Resultado da Simulação Unificada")
-            df_display = st.session_state.df_unificado.copy()
-            for col in ['Saldo Devedor', 'Parcela Total', 'Amortização', 'Juros', 'Encargos']:
-                if col in df_display.columns: df_display[col] = df_display[col].apply(format_currency)
-            st.dataframe(df_display[['DataObj', 'Fase', 'Parcela Total', 'Amortização', 'Juros', 'Encargos', 'Saldo Devedor']].rename(columns={'DataObj': 'Data'}), use_container_width=True)
+            df_display = st.session_state.df_unificado[['DataObj', 'Fase', 'Parcela Total', 'Amortização', 'Juros', 'Encargos', 'Saldo Devedor']]
+            st.dataframe(
+                df_display,
+                column_config={
+                    "DataObj": st.column_config.DateColumn("Data",format="DD/MM/YYYY"),
+                    "Parcela Total": st.column_config.NumberColumn(format="R$ %.2f"),
+                    "Amortização": st.column_config.NumberColumn(format="R$ %.2f"),
+                    "Juros": st.column_config.NumberColumn(format="R$ %.2f"),
+                    "Encargos": st.column_config.NumberColumn(format="R$ %.2f"),
+                    "Saldo Devedor": st.column_config.NumberColumn(format="R$ %.2f"),
+                },
+                use_container_width=True
+            )
 
             if not st.session_state.df_banco.empty:
                  mostrar_graficos_comparativos(st.session_state.df_unificado, st.session_state.df_banco)
