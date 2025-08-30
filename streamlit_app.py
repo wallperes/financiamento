@@ -20,7 +20,7 @@ def converter_juros_anual_para_mensal(taxa_anual):
         return -1
     return (1 + taxa_anual)**(1/12) - 1
 
-def calcular_cet(valor_financiado, pagamentos):
+def calcular_cet(valor_financiado, pagamentos, cenario="Default"):
     """
     Calcula o Custo Efetivo Total (CET) anual a partir de um fluxo de caixa.
     A função usa a Taxa Interna de Retorno (TIR) para encontrar a taxa mensal
@@ -29,28 +29,48 @@ def calcular_cet(valor_financiado, pagamentos):
     Args:
         valor_financiado (float): O valor líquido recebido pelo cliente no início.
         pagamentos (list or pd.Series): Uma lista de todos os pagamentos (parcelas) feitos.
+        cenario (str): Um nome para identificar o cenário no debug.
 
     Returns:
         float: O CET em formato percentual anual (ex: 12.5). Retorna 0.0 se o cálculo falhar.
     """
-    # Valida se o cenário é calculável (valor financiado e pagamentos > 0)
+    # --- INÍCIO DO DEBUG ---
+    st.write(f"--- Debug CET: Cenário '{cenario}' ---")
+    st.write(f"Valor Financiado (Entrada para TIR): {format_currency(valor_financiado)}")
+    st.write(f"Número de Pagamentos na lista: {len(pagamentos)}")
+    st.write(f"Primeiros 5 pagamentos: {[format_currency(p) for p in pagamentos[:5]]}")
+    st.write(f"Últimos 5 pagamentos: {[format_currency(p) for p in pagamentos[-5:]]}")
+    # --- FIM DO DEBUG ---
+
     if valor_financiado <= 0 or not any(p > 0 for p in pagamentos):
+        st.write("Debug CET: Condição de saída antecipada atingida (valor financiado <= 0 ou sem pagamentos).")
         return 0.0
 
-    # O fluxo de caixa para a TIR começa com o valor recebido (positivo)
-    # seguido por TODOS os pagamentos (negativos), incluindo períodos com pagamento zero.
     fluxo_de_caixa = [valor_financiado] + [-p for p in pagamentos]
 
     try:
-        # np.irr calcula a TIR para o período (que é mensal, neste caso)
         taxa_mensal = np.irr(fluxo_de_caixa)
+        
+        # --- INÍCIO DO DEBUG ---
+        st.write(f"Taxa Mensal (TIR) calculada: {taxa_mensal}")
+        # --- FIM DO DEBUG ---
+        
         if np.isnan(taxa_mensal) or np.isinf(taxa_mensal):
+             st.write("Debug CET: TIR resultou em NaN ou Infinito.")
              return 0.0
-        # Converte a taxa mensal para anual
+        
         taxa_anual = (1 + taxa_mensal)**12 - 1
-        return taxa_anual * 100  # Retorna como percentual
-    except Exception:
-        # Se o cálculo da TIR falhar (não converge), retorna 0
+        st.write(f"CET Anual calculado: {taxa_anual * 100:.4f}%")
+        st.write("--- Fim Debug CET ---")
+        return taxa_anual * 100
+        
+    except Exception as e:
+        # --- INÍCIO DO DEBUG ---
+        st.write(f"!!! ERRO no cálculo da TIR para o cenário '{cenario}' !!!")
+        st.error(f"Exceção: {e}")
+        st.write("Fluxo de caixa que causou o erro (primeiros 20 itens):", fluxo_de_caixa[:20])
+        st.write("--- Fim Debug CET ---")
+        # --- FIM DO DEBUG ---
         return 0.0
 
 # ============================================
@@ -606,14 +626,14 @@ def main():
                 valor_financiado_liquido_c = sim_params['valor_total_imovel'] - pagamento_t0_c
                 # Os pagamentos futuros são todas as parcelas subsequentes.
                 pagamentos_futuros_c = pagamentos_df_c['Parcela Total'].iloc[1:].tolist()
-                st.session_state.cet_construtora = calcular_cet(valor_financiado_liquido_c, pagamentos_futuros_c)
+                st.session_state.cet_construtora = calcular_cet(valor_financiado_liquido_c, pagamentos_futuros_c, "Construtora")
 
             # Cenário 2: Banco (Início)
             if not st.session_state.df_banco.empty:
                 # O fluxo do banco é mais simples: o valor financiado contra as parcelas do banco.
                 valor_financiado_b = params_gerais['valor_total_imovel'] - params_gerais['valor_entrada']
                 pagamentos_b = st.session_state.df_banco['Parcela Total'].tolist()
-                st.session_state.cet_banco = calcular_cet(valor_financiado_b, pagamentos_b)
+                st.session_state.cet_banco = calcular_cet(valor_financiado_b, pagamentos_b, "Banco (Início)")
 
             # Cenário 3: Combinado
             if not st.session_state.df_combinado.empty:
@@ -622,7 +642,7 @@ def main():
                 pagamento_t0_comb = pagamentos_df_comb['Parcela Total'].iloc[0]
                 valor_financiado_liquido_comb = sim_params['valor_total_imovel'] - pagamento_t0_comb
                 pagamentos_futuros_comb = pagamentos_df_comb['Parcela Total'].iloc[1:].tolist()
-                st.session_state.cet_combinado = calcular_cet(valor_financiado_liquido_comb, pagamentos_futuros_comb)
+                st.session_state.cet_combinado = calcular_cet(valor_financiado_liquido_comb, pagamentos_futuros_comb, "Combinado")
 
     col1, col2, col3, col4 = st.columns(4)
     with col1:
