@@ -138,12 +138,12 @@ def verificar_quitacao_pre(params, total_amortizado_acumulado):
 # LÓGICA DE SIMULAÇÃO - 3 CENÁRIOS
 # ============================================
 
-# --- CENÁRIO 1: 100% CONSTRUTORA (LÓGICA ORIGINAL) ---
+# --- CENÁRIO 1: 100% CONSTRUTORA (LÓGICA ORIGINAL CORRIGIDA) ---
 def simular_cenario_construtora(params, valores_reais=None):
     """
     Executa a simulação completa do financiamento com a Construtora.
-    Esta é a função `simular_financiamento` original, renomeada para clareza.
     A LÓGICA DE CÁLCULO ESTÁ 100% PRESERVADA.
+    A única alteração é a remoção da linha que criava datas duplicadas.
     """
     historico = []
     try:
@@ -172,7 +172,13 @@ def simular_cenario_construtora(params, valores_reais=None):
         correcao_mes_carencia = calcular_correcao(saldo_temp_carencia, 0, 'Carência', params, valores_reais)
         total_correcao_carencia += correcao_mes_carencia
         saldo_temp_carencia += correcao_mes_carencia
-        historico.append({'Data': data_corrente_carencia, 'Fase': 'Carência', 'Saldo Devedor': saldo_devedor, 'Parcela Total': 0, 'Amortização': 0, 'Juros': 0, 'Correção Saldo (Ajuste)': correcao_mes_carencia, 'Correção Parcela (Diluída)': 0, 'Encargos': 0})
+        
+        # ### INÍCIO DA CORREÇÃO ###
+        # A linha abaixo foi REMOVIDA para evitar a criação de datas duplicadas.
+        # O cálculo financeiro acima foi mantido e o valor de `total_correcao_carencia`
+        # é usado corretamente mais abaixo, preservando o resultado final.
+        # historico.append({'Data': data_corrente_carencia, 'Fase': 'Carência', ...})
+        # ### FIM DA CORREÇÃO ###
 
     parcelas_futuras = construir_parcelas_futuras(params)
     if total_correcao_carencia > 0 and parcelas_futuras:
@@ -456,24 +462,28 @@ def main():
 
     if st.session_state.ran_simulation:
         if 'df_construtora' in st.session_state and 'df_caixa' in st.session_state and 'df_combinado' in st.session_state:
-            mostrar_grafico_comparativo(st.session_state.df_construtora, st.session_state.df_caixa, st.session_state.df_combinado)
+            # Verifica se os dataframes não estão vazios antes de plotar
+            if not st.session_state.df_construtora.empty and not st.session_state.df_caixa.empty and not st.session_state.df_combinado.empty:
+                mostrar_grafico_comparativo(st.session_state.df_construtora, st.session_state.df_caixa, st.session_state.df_combinado)
 
-            tab1, tab2, tab3 = st.tabs(["Cenário 1: 100% Construtora", "Cenário 2: 100% Financiamento Bancário", "Cenário 3: Combinado"])
+                tab1, tab2, tab3 = st.tabs(["Cenário 1: 100% Construtora", "Cenário 2: 100% Financiamento Bancário", "Cenário 3: Combinado"])
 
-            with tab1:
-                st.header("Detalhes: 100% Construtora")
-                st.info("Financiamento direto com a construtora, seguindo as fases pré e pós-chaves definidas.")
-                mostrar_tabela_detalhada(st.session_state.df_construtora)
+                with tab1:
+                    st.header("Detalhes: 100% Construtora")
+                    st.info("Financiamento direto com a construtora, seguindo as fases pré e pós-chaves definidas.")
+                    mostrar_tabela_detalhada(st.session_state.df_construtora)
 
-            with tab2:
-                st.header("Detalhes: 100% Financiamento Bancário")
-                st.info("Simula um financiamento na planta com o banco desde o início, incluindo a fase de 'Juros de Obra' (sem amortização) e depois a fase de amortização (SAC/Price).")
-                mostrar_tabela_detalhada(st.session_state.df_caixa)
-                
-            with tab3:
-                st.header("Detalhes: Cenário Combinado")
-                st.info("Neste cenário, você paga a fase de obra para a construtora e, na entrega das chaves, quita o saldo devedor com um financiamento bancário.")
-                mostrar_tabela_detalhada(st.session_state.df_combinado)
+                with tab2:
+                    st.header("Detalhes: 100% Financiamento Bancário")
+                    st.info("Simula um financiamento na planta com o banco desde o início, incluindo a fase de 'Juros de Obra' (sem amortização) e depois a fase de amortização (SAC/Price).")
+                    mostrar_tabela_detalhada(st.session_state.df_caixa)
+                    
+                with tab3:
+                    st.header("Detalhes: Cenário Combinado")
+                    st.info("Neste cenário, você paga a fase de obra para a construtora e, na entrega das chaves, quita o saldo devedor com um financiamento bancário.")
+                    mostrar_tabela_detalhada(st.session_state.df_combinado)
+            else:
+                st.error("Um ou mais cenários resultaram em tabelas vazias. Verifique os parâmetros de entrada.")
         else:
             st.error("Ocorreu um erro ao calcular um ou mais cenários. Verifique os parâmetros.")
 
