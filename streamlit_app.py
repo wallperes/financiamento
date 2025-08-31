@@ -7,7 +7,7 @@ from dateutil.relativedelta import relativedelta
 import sgs
 
 # ============================================
-# UTILITÁRIAS
+# UTILITÁRIAS (Sem alterações)
 # ============================================
 
 def format_currency(value):
@@ -23,17 +23,7 @@ def converter_juros_anual_para_mensal(taxa_anual):
     return (1 + taxa_anual)**(1/12) - 1
 
 def calcular_cet(valor_financiado, pagamentos):
-    """
-    Calcula o Custo Efetivo Total (CET) anual a partir de um fluxo de caixa.
-    A função usa a Taxa Interna de Retorno (TIR) para encontrar a taxa mensal e depois a converte para anual.
-
-    Args:
-        valor_financiado (float): O valor líquido recebido pelo cliente no início.
-        pagamentos (list or pd.Series): Uma lista de todos os pagamentos (parcelas) feitos.
-
-    Returns:
-        float: O CET em formato percentual anual (ex: 12.5). Retorna 0.0 se o cálculo falhar.
-    """
+    """Calcula o Custo Efetivo Total (CET) anual a partir de um fluxo de caixa."""
     if valor_financiado <= 0 or not any(p > 0 for p in pagamentos):
         return 0.0
     fluxo_de_caixa = [valor_financiado] + [-p for p in pagamentos]
@@ -47,7 +37,7 @@ def calcular_cet(valor_financiado, pagamentos):
         return 0.0
 
 # ============================================
-# LÓGICA DA CONSTRUTORA (CÁLCULO MANTIDO, COLUNAS AJUSTADAS)
+# LÓGICA DA CONSTRUTORA (Sem alterações)
 # ============================================
 
 def construir_parcelas_futuras(params):
@@ -248,7 +238,7 @@ def simular_financiamento(params, valores_reais=None):
     return pd.DataFrame(historico)
 
 # ============================================
-# BUSCAR ÍNDICES BC (INCC, IPCA, TR)
+# BUSCAR ÍNDICES BC (Sem alterações)
 # ============================================
 
 def buscar_indices_bc(mes_inicial, meses_total):
@@ -290,7 +280,7 @@ def buscar_indices_bc(mes_inicial, meses_total):
         return {}, 0, pd.DataFrame()
 
 # ============================================
-# NOVA LÓGICA DE JUROS DE OBRA
+# LÓGICA DE JUROS DE OBRA (Sem alterações)
 # ============================================
 
 def _obter_percentual_obra(mes_obra_atual, prazo_obra_total, metodo, marcos={}):
@@ -426,7 +416,7 @@ def calcular_juros_obra_detalhado(params_gerais, params_banco, params_construtor
     return pd.DataFrame(historico)
 
 # ============================================
-# SIMULAÇÃO BANCÁRIA (MODIFICADA PARA TABELA DETALHADA)
+# SIMULAÇÃO BANCÁRIA (Sem alterações)
 # ============================================
 
 def simular_financiamento_bancario_completo(params_gerais, params_banco, params_construtora, valores_reais=None, offset_mes=0, include_obra=True, valor_financiado_override=None, prazo_amort_override=None):
@@ -519,7 +509,7 @@ def simular_financiamento_bancario_completo(params_gerais, params_banco, params_
     return pd.concat([historico_df, df_amort], ignore_index=True) if not df_amort.empty else historico_df
 
 # ============================================
-# SIMULAÇÃO COMBINADA (CONSTRUTORA + BANCO)
+# SIMULAÇÃO COMBINADA (Sem alterações)
 # ============================================
 
 def simular_cenario_combinado(params_construtora, params_banco, valores_reais=None):
@@ -570,7 +560,7 @@ def simular_cenario_combinado(params_construtora, params_banco, valores_reais=No
     return df_comb
 
 # ============================================
-# NOVA SIMULAÇÃO: ASSOCIATIVO (PRÉ + JUROS OBRA -> PÓS)
+# SIMULAÇÃO ASSOCIATIVA (Sem alterações)
 # ============================================
 
 def simular_cenario_associativo(params_construtora, params_banco, valores_reais=None):
@@ -641,104 +631,8 @@ def simular_cenario_associativo(params_construtora, params_banco, valores_reais=
     return df_final.sort_values('DataObj').reset_index(drop=True)
 
 # ============================================
-# INTERFACE STREAMLIT (MODIFICADA)
+# FUNÇÕES DE INTERFACE (Sem alterações)
 # ============================================
-
-def criar_parametros():
-    st.sidebar.header("Parâmetros Gerais do Imóvel")
-    params = {}
-    params['data_inicio_obra'] = st.sidebar.date_input("Início da obra (empreendimento)", value=date(2024, 10, 1))
-    params['mes_assinatura'] = st.sidebar.text_input("Mês da assinatura do seu contrato (MM/AAAA)", "04/2025")
-    params['mes_primeira_parcela'] = st.sidebar.text_input("Mês da 1ª parcela (MM/AAAA)", "05/2025")
-    params['valor_total_imovel'] = st.sidebar.number_input("Valor total do imóvel", value=455750.0, format="%.2f")
-    params['valor_entrada'] = st.sidebar.number_input("Valor total da entrada", value=22270.54, format="%.2f")
-    params['tipo_pagamento_entrada'] = st.sidebar.selectbox("Como a entrada é paga?", ['Parcelada', 'Paga no ato'])
-    
-    if params['tipo_pagamento_entrada'] == 'Parcelada':
-        params['num_parcelas_entrada'] = st.sidebar.number_input("Nº de parcelas da entrada", min_value=1, value=3)
-        params['entrada_mensal'] = params['valor_entrada'] / params['num_parcelas_entrada'] if params['num_parcelas_entrada'] > 0 else 0
-    else:
-        params['num_parcelas_entrada'] = 0; params['entrada_mensal'] = 0
-        
-    st.sidebar.subheader("Parâmetros de Correção e Juros")
-    params['inicio_correcao'] = st.sidebar.number_input("Aplicar correção a partir de qual parcela?", min_value=1, value=1)
-    params['incc_medio'] = st.sidebar.number_input("INCC médio mensal (%)", value=0.5446, format="%.4f") / 100
-    params['ipca_medio'] = st.sidebar.number_input("IPCA médio mensal (%)", value=0.4669, format="%.4f") / 100
-    st.sidebar.number_input("Juros Pós-Chaves (% a.a.)", value=12.0, format="%.2f", disabled=True, help="Na lógica de cálculo atual, os juros são progressivos e não baseados nesta taxa fixa.")
-    
-    st.sidebar.subheader("Fases de Pagamento (seu contrato)")
-    col1, col2 = st.sidebar.columns(2)
-    params['meses_pre'] = col1.number_input("Meses pré-chaves", value=17, help="Prazo entre a 1ª parcela e a entrega das chaves.")
-    params['meses_pos'] = col2.number_input("Meses pós-chaves", value=100)
-    
-    col3, col4 = st.sidebar.columns(2)
-    params['parcelas_mensais_pre'] = col3.number_input("Valor parcela pré (R$)", value=3983.38, format="%.2f")
-    params['valor_amortizacao_pos'] = col4.number_input("Valor parcela pós (R$)", value=3104.62, format="%.2f")
-    
-    st.sidebar.subheader("Parcelas Extras (na fase pré-chaves)")
-    with st.sidebar.expander("Configurar Parcelas Semestrais e Anuais"):
-        params['parcelas_semestrais'], params['parcelas_anuais'] = {}, {}
-        st.sidebar.write("Parcelas Semestrais:")
-        for i in range(4):
-            cs1, cs2 = st.sidebar.columns(2)
-            mes_sem = cs1.number_input(f"Mês da {i+1}ª semestral", value=6*(i+1) if i<2 else 0, key=f"sem_mes_{i}")
-            valor_sem = cs2.number_input(f"Valor {i+1} (R$)", value=6000.0 if i<2 else 0.0, key=f"sem_val_{i}", format="%.2f")
-            if mes_sem > 0 and valor_sem > 0:
-                params['parcelas_semestrais'][int(mes_sem)] = valor_sem
-                
-        st.sidebar.write("Parcelas Anuais:")
-        ca1, ca2 = st.sidebar.columns(2)
-        mes_anu, valor_anu = ca1.number_input("Mês da anual", value=17, key="anu_mes"), ca2.number_input("Valor anual (R$)", value=43300.0, key="anu_val", format="%.2f")
-        if mes_anu > 0 and valor_anu > 0:
-            params['parcelas_anuais'][int(mes_anu)] = valor_anu
-        
-    params['percentual_minimo_quitacao'], params['limite_correcao'] = 0.3, None
-    return params
-
-def criar_parametros_banco(params_construtora):
-    st.info("Para replicar uma simulação da Caixa, use o sistema PRICE e a taxa de juros NOMINAL, mesmo que o documento indique SAC.", icon="💡")
-    params_banco = {}
-    st.subheader("Parâmetros do Contrato Bancário")
-    pcol1, pcol2 = st.columns(2)
-    
-    with pcol1:
-        params_banco['taxa_juros_anual'] = st.number_input("Taxa de Juros Nominal (% a.a.)", value=10.0, format="%.4f", key="b_juros")
-        params_banco['indexador'] = st.selectbox("Indexador (pós)", ['TR', 'IPCA', 'Fixa'], index=0)
-        params_banco['sistema_amortizacao'] = st.selectbox("Sistema de amortização", ['PRICE', 'SAC'], index=0)
-        
-    with pcol2:
-        st.subheader("Taxas e Seguros")
-        params_banco['taxa_admin_mensal'] = st.number_input("Taxa de Admin Mensal (R$)", value=25.0, format="%.2f", key="b_admin")
-        params_banco['seguro_total_primeira_parcela'] = st.number_input("Valor Total do Seguro na 1ª Parcela (R$)", value=94.92, format="%.2f", key="b_seguro_total", help="Informe o valor total do seguro (DFI+MIP) que aparece na primeira parcela da sua simulação.")
-        
-        with st.expander("Ajuste Fino da Estimativa do Seguro"):
-            params_banco['percentual_dfi_estimado'] = st.slider(
-                "Percentual estimado do DFI sobre o seguro total (%)", 
-                min_value=0.0, max_value=100.0, value=30.0, step=0.5,
-                help="O seguro é composto de uma parte fixa (DFI) e uma variável (MIP). Ajuste aqui a proporção que você estima ser a parte fixa. Um valor comum fica entre 25% e 40%."
-            )
-
-        params_banco['tr_medio'] = st.number_input("TR média mensal (decimal)", value=0.0, format="%.6f", help="Usado se não houver dados do SGS")
-        params_banco['ipca_medio'] = st.number_input("IPCA média mensal (decimal)", value=0.004669, format="%.6f", help="Usado se não houver dados do SGS")
-        
-    st.subheader("Parâmetros dos Juros de Obra")
-    params_banco['metodo_calculo_juros'] = st.selectbox(
-        "Método de Evolução da Obra",
-        ['Progressiva (S-Curve)', 'Linear', 'Manual'],
-        index=0,
-        help="Define como o percentual de conclusão da obra evolui. 'S-Curve' é mais realista que 'Linear'."
-    )
-    st.caption("A evolução da obra é estimada usando a data de início (parâmetros gerais) e o seu prazo pré-chaves.")
-    
-    if params_banco['metodo_calculo_juros'] == 'Manual':
-        st.warning("O 'Mês da Obra' nos marcos abaixo é contado a partir do Início da Obra do empreendimento.", icon="⚠️")
-        params_banco['marcos_liberacao'] = st.text_area(
-            "Defina os marcos (mês da obra: % concluído)",
-            "6:20, 12:50, 18:90",
-            help="Formato: mes_da_obra:percentual_total, ... A interpolação será linear entre os marcos."
-        )
-        
-    return params_banco
 
 def display_detailed_table(df, title):
     """Função auxiliar para exibir uma tabela detalhada formatada dentro de um expander."""
@@ -826,18 +720,180 @@ def mostrar_comparacao(df_c, df_b, df_comb, df_assoc, cet_c, cet_b, cet_comb, ce
     if not df_comb.empty: display_detailed_table(df_comb, "Financiamento na Entrega")
     if not df_assoc.empty: display_detailed_table(df_assoc, "Financiamento na Planta")
 
+
+# ============================================
+# NOVA INTERFACE STREAMLIT (REESTRUTURADA)
+# ============================================
+
+def setup_ui():
+    """Cria e gerencia a interface do usuário para coletar todos os parâmetros."""
+    
+    # --- 1. PARÂMETROS GERAIS NA SIDEBAR ---
+    st.sidebar.header("Parâmetros Gerais do Contrato")
+    st.session_state.data_inicio_obra = st.sidebar.date_input("Início da obra (empreendimento)", value=date(2024, 10, 1))
+    st.session_state.mes_assinatura = st.sidebar.text_input("Mês da assinatura do seu contrato (MM/AAAA)", "04/2025")
+    st.session_state.mes_primeira_parcela = st.sidebar.text_input("Mês da 1ª parcela (MM/AAAA)", "05/2025")
+    st.session_state.valor_total_imovel = st.sidebar.number_input("Valor total do imóvel", value=455750.0, format="%.2f", key="val_imovel")
+    st.session_state.valor_entrada = st.sidebar.number_input("Valor total da entrada", value=22270.54, format="%.2f", key="val_entrada")
+    st.session_state.tipo_pagamento_entrada = st.sidebar.selectbox("Como a entrada é paga?", ['Parcelada', 'Paga no ato'], key="tipo_entrada")
+
+    if st.session_state.tipo_pagamento_entrada == 'Parcelada':
+        st.session_state.num_parcelas_entrada = st.sidebar.number_input("Nº de parcelas da entrada", min_value=1, value=3, key="num_parcelas_ent")
+    else:
+        st.session_state.num_parcelas_entrada = 0
+
+    st.header("Definição das Fases do Financiamento")
+
+    # --- 2. FASE PRÉ-CHAVES ---
+    with st.container(border=True):
+        st.subheader("Fase 1: Período Pré-Chaves")
+        st.session_state.financiador_pre = st.radio("Quem financia esta fase?", ["Construtora", "Banco (Caixa, etc.)"], key="fin_pre", horizontal=True)
+        
+        col1, col2 = st.columns(2)
+        valor_a_financiar_pre = col1.number_input("Valor total a ser pago na fase pré-chaves", value=123217.46, format="%.2f", key="val_pre")
+        st.session_state.meses_pre = col2.number_input("Nº de meses na fase pré-chaves", value=17, key="meses_pre")
+        
+        parcela_base_pre = valor_a_financiar_pre / st.session_state.meses_pre if st.session_state.meses_pre > 0 else 0
+        st.session_state.parcelas_mensais_pre = parcela_base_pre
+        st.info(f"O valor base da parcela mensal nesta fase é de **{format_currency(parcela_base_pre)}** (divisão simples). Parcelas extras serão somadas a este valor.")
+
+        if st.session_state.financiador_pre == "Construtora":
+            with st.expander("Adicionar Parcelas Extras (Semestrais/Anuais)"):
+                st.write("Configure parcelas com valores diferentes que ocorrem em meses específicos.")
+                st.session_state.parcelas_semestrais, st.session_state.parcelas_anuais = {}, {}
+                
+                st.write("**Parcelas Semestrais:**")
+                for i in range(4):
+                    cs1, cs2 = st.columns(2)
+                    mes_sem = cs1.number_input(f"Mês da {i+1}ª semestral", value=6*(i+1) if i<2 else 0, key=f"sem_mes_{i}")
+                    valor_sem = cs2.number_input(f"Valor {i+1} (R$)", value=6000.0 if i<2 else 0.0, key=f"sem_val_{i}", format="%.2f")
+                    if mes_sem > 0 and valor_sem > 0:
+                        st.session_state.parcelas_semestrais[int(mes_sem)] = valor_sem
+
+                st.write("**Parcelas Anuais:**")
+                ca1, ca2 = st.columns(2)
+                mes_anu = ca1.number_input("Mês da anual", value=17, key="anu_mes")
+                valor_anu = ca2.number_input("Valor anual (R$)", value=43300.0, key="anu_val", format="%.2f")
+                if mes_anu > 0 and valor_anu > 0:
+                    st.session_state.parcelas_anuais[int(mes_anu)] = valor_anu
+
+    # --- 3. FASE PÓS-CHAVES ---
+    with st.container(border=True):
+        st.subheader("Fase 2: Período Pós-Chaves")
+        st.session_state.financiador_pos = st.radio("Quem financia esta fase?", ["Construtora", "Banco (Caixa, etc.)"], index=1, key="fin_pos", horizontal=True)
+
+        col3, col4 = st.columns(2)
+        saldo_devedor_estimado = st.session_state.valor_total_imovel - st.session_state.valor_entrada - valor_a_financiar_pre
+        valor_a_financiar_pos = col3.number_input("Valor total a ser pago na fase pós-chaves (saldo devedor)", value=saldo_devedor_estimado, format="%.2f", key="val_pos")
+        st.session_state.meses_pos = col4.number_input("Nº de meses na fase pós-chaves (amortização)", value=100, key="meses_pos")
+
+        parcela_base_pos = valor_a_financiar_pos / st.session_state.meses_pos if st.session_state.meses_pos > 0 else 0
+        st.session_state.valor_amortizacao_pos = parcela_base_pos
+        st.info(f"O valor base da parcela mensal nesta fase é de **{format_currency(parcela_base_pos)}** (divisão simples). Juros e correções serão aplicados sobre este valor.")
+
+    # --- 4. BOTÃO PARA CARREGAR PADRÕES E PARÂMETROS DETALHADOS ---
+    st.divider()
+    if st.button("Carregar Parâmetros Padrão", help="Preenche as seções abaixo com valores comuns de mercado para agilizar a simulação."):
+        # Padrões da Construtora
+        st.session_state.inicio_correcao_pd = 1
+        st.session_state.incc_medio_pd = 0.5446
+        st.session_state.ipca_medio_pd = 0.4669
+        # Padrões do Banco
+        st.session_state.b_juros_pd = 10.0
+        st.session_state.b_admin_pd = 25.0
+        st.session_state.b_seguro_total_pd = 94.92
+        st.session_state.percentual_dfi_estimado_pd = 30.0
+        st.session_state.tr_medio_pd = 0.0
+        st.session_state.ipca_medio_banco_pd = 0.004669
+        st.session_state.indexador_pd = 'TR'
+        st.session_state.sistema_amortizacao_pd = 'PRICE'
+        st.rerun()
+
+    # --- 5. PARÂMETROS DETALHADOS (CONSTRUTORA E BANCO) ---
+    st.header("Parâmetros Detalhados")
+
+    # Parâmetros da Construtora (sempre visíveis)
+    with st.expander("Parâmetros de Correção (Construtora)", expanded=True):
+        pcol1, pcol2, pcol3 = st.columns(3)
+        st.session_state.inicio_correcao = pcol1.number_input("Aplicar correção a partir de qual parcela?", min_value=1, value=st.session_state.get('inicio_correcao_pd', 1))
+        st.session_state.incc_medio = pcol2.number_input("INCC médio mensal (%)", value=st.session_state.get('incc_medio_pd', 0.5446), format="%.4f") / 100
+        st.session_state.ipca_medio = pcol3.number_input("IPCA médio mensal (%)", value=st.session_state.get('ipca_medio_pd', 0.4669), format="%.4f") / 100
+        st.sidebar.number_input("Juros Pós-Chaves (% a.a.)", value=12.0, format="%.2f", disabled=True, help="Na lógica de cálculo atual da construtora, os juros são progressivos e não baseados nesta taxa fixa.")
+
+    # Parâmetros do Banco (visíveis se o banco for um financiador)
+    if st.session_state.financiador_pre == "Banco (Caixa, etc.)" or st.session_state.financiador_pos == "Banco (Caixa, etc.)":
+        with st.expander("Parâmetros do Financiamento Bancário", expanded=True):
+            st.info("Para replicar uma simulação da Caixa, use o sistema PRICE e a taxa de juros NOMINAL, mesmo que o documento indique SAC.", icon="💡")
+            
+            bcol1, bcol2 = st.columns(2)
+            with bcol1:
+                st.subheader("Condições Gerais")
+                st.session_state.taxa_juros_anual = st.number_input("Taxa de Juros Nominal (% a.a.)", value=st.session_state.get('b_juros_pd', 10.0), format="%.4f", key="b_juros")
+                st.session_state.indexador = st.selectbox("Indexador (pós)", ['TR', 'IPCA', 'Fixa'], index=['TR', 'IPCA', 'Fixa'].index(st.session_state.get('indexador_pd', 'TR')), key="b_index")
+                st.session_state.sistema_amortizacao = st.selectbox("Sistema de amortização", ['PRICE', 'SAC'], index=['PRICE', 'SAC'].index(st.session_state.get('sistema_amortizacao_pd', 'PRICE')), key="b_sistema")
+            
+            with bcol2:
+                st.subheader("Taxas e Seguros")
+                st.session_state.taxa_admin_mensal = st.number_input("Taxa de Admin Mensal (R$)", value=st.session_state.get('b_admin_pd', 25.0), format="%.2f", key="b_admin")
+                st.session_state.seguro_total_primeira_parcela = st.number_input("Valor Total do Seguro na 1ª Parcela (R$)", value=st.session_state.get('b_seguro_total_pd', 94.92), format="%.2f", key="b_seguro_total", help="Informe o valor total do seguro (DFI+MIP) que aparece na primeira parcela da sua simulação.")
+                st.session_state.percentual_dfi_estimado = st.slider("Percentual estimado do DFI sobre o seguro total (%)", min_value=0.0, max_value=100.0, value=st.session_state.get('percentual_dfi_estimado_pd', 30.0), step=0.5, help="O seguro é composto de uma parte fixa (DFI) e uma variável (MIP). Ajuste aqui a proporção que você estima ser a parte fixa. Um valor comum fica entre 25% e 40%.", key="b_dfi_perc")
+            
+            st.subheader("Juros de Obra e Correções Futuras")
+            st.session_state.metodo_calculo_juros = st.selectbox("Método de Evolução da Obra", ['Progressiva (S-Curve)', 'Linear', 'Manual'], index=0, help="Define como o percentual de conclusão da obra evolui. 'S-Curve' é mais realista que 'Linear'.")
+            if st.session_state.metodo_calculo_juros == 'Manual':
+                 st.session_state.marcos_liberacao = st.text_area("Defina os marcos (mês da obra: % concluído)", "6:20, 12:50, 18:90", help="Formato: mes_da_obra:percentual_total, ...")
+            
+            jcol1, jcol2 = st.columns(2)
+            st.session_state.tr_medio = jcol1.number_input("TR média mensal (decimal)", value=st.session_state.get('tr_medio_pd', 0.0), format="%.6f", help="Usado se não houver dados do SGS")
+            st.session_state.ipca_medio_banco = jcol2.number_input("IPCA média mensal (decimal)", value=st.session_state.get('ipca_medio_banco_pd', 0.004669), format="%.6f", help="Usado se não houver dados do SGS")
+
 def main():
     st.set_page_config(layout="wide", page_title="Simulador e Comparador de Financiamento")
     st.title("Simulador de Financiamento Imobiliário 🚧🏗️")
     
+    # Inicializa o session_state para os resultados
     for key in ['df_resultado', 'df_banco', 'df_combinado', 'df_associativo', 'cet_construtora', 'cet_banco', 'cet_combinado', 'cet_associativo']:
         if key not in st.session_state:
             st.session_state[key] = pd.DataFrame() if 'df' in key else 0.0
             
-    params = criar_parametros()
-    st.header("⚖️ Parâmetros para Financiamento Bancário")
-    params_banco = criar_parametros_banco(params)
+    # Roda a UI para coletar os inputs
+    setup_ui()
+
+    # Monta os dicionários de parâmetros a partir do st.session_state
+    params = {
+        'data_inicio_obra': st.session_state.data_inicio_obra,
+        'mes_assinatura': st.session_state.mes_assinatura,
+        'mes_primeira_parcela': st.session_state.mes_primeira_parcela,
+        'valor_total_imovel': st.session_state.valor_total_imovel,
+        'valor_entrada': st.session_state.valor_entrada,
+        'tipo_pagamento_entrada': st.session_state.tipo_pagamento_entrada,
+        'num_parcelas_entrada': st.session_state.get('num_parcelas_entrada', 0),
+        'entrada_mensal': (st.session_state.valor_entrada / st.session_state.num_parcelas_entrada) if st.session_state.get('num_parcelas_entrada', 0) > 0 else 0,
+        'inicio_correcao': st.session_state.get('inicio_correcao', 1),
+        'incc_medio': st.session_state.get('incc_medio', 0.0),
+        'ipca_medio': st.session_state.get('ipca_medio', 0.0),
+        'meses_pre': st.session_state.get('meses_pre', 0),
+        'meses_pos': st.session_state.get('meses_pos', 0),
+        'parcelas_mensais_pre': st.session_state.get('parcelas_mensais_pre', 0) if st.session_state.get('financiador_pre') == "Construtora" else 0,
+        'valor_amortizacao_pos': st.session_state.get('valor_amortizacao_pos', 0) if st.session_state.get('financiador_pos') == "Construtora" else 0,
+        'parcelas_semestrais': st.session_state.get('parcelas_semestrais', {}),
+        'parcelas_anuais': st.session_state.get('parcelas_anuais', {}),
+        'percentual_minimo_quitacao': 0.3, 'limite_correcao': None
+    }
     
+    params_banco = {
+        'taxa_juros_anual': st.session_state.get('taxa_juros_anual', 0.0),
+        'indexador': st.session_state.get('indexador', 'TR'),
+        'sistema_amortizacao': st.session_state.get('sistema_amortizacao', 'PRICE'),
+        'taxa_admin_mensal': st.session_state.get('taxa_admin_mensal', 0.0),
+        'seguro_total_primeira_parcela': st.session_state.get('seguro_total_primeira_parcela', 0.0),
+        'percentual_dfi_estimado': st.session_state.get('percentual_dfi_estimado', 30.0),
+        'tr_medio': st.session_state.get('tr_medio', 0.0),
+        'ipca_medio': st.session_state.get('ipca_medio_banco', 0.0),
+        'metodo_calculo_juros': st.session_state.get('metodo_calculo_juros', 'Progressiva (S-Curve)'),
+        'marcos_liberacao': st.session_state.get('marcos_liberacao', '')
+    }
+
     st.header("Gerar Simulação e Comparar Cenários")
     
     def run_full_simulation(sim_params, real_values=None):
