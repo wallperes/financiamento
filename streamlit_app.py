@@ -371,9 +371,11 @@ def calcular_juros_obra_detalhado(params_gerais, params_banco, params_construtor
         
     taxa_juros_mensal = (params_banco['taxa_juros_anual'] / 100) / 12
     taxa_admin_mensal_valor = params_banco.get('taxa_admin_mensal', 0)
-    # --- LÓGICA DE SEGURO ATUALIZADA (DFI + MIP) ---
-    valor_seguro_dfi = params_banco.get('seguro_dfi_mensal', 0)
-    valor_seguro_mip_inicial = params_banco.get('seguro_mip_primeira_parcela', 0)
+    # --- LÓGICA DE SEGURO ATUALIZADA (ESTIMATIVA DFI + MIP) ---
+    seguro_total_inicial = params_banco.get('seguro_total_primeira_parcela', 0)
+    percentual_dfi = params_banco.get('percentual_dfi_estimado', 30.0) / 100
+    valor_seguro_dfi = seguro_total_inicial * percentual_dfi
+    valor_seguro_mip_inicial = seguro_total_inicial - valor_seguro_dfi
     taxa_mip = valor_seguro_mip_inicial / valor_financiado if valor_financiado > 0 else 0
     
     for i in range(meses_restantes_obra):
@@ -433,9 +435,11 @@ def simular_financiamento_bancario_completo(params_gerais, params_banco, params_
     taxa_juros_mensal = (params_banco['taxa_juros_anual'] / 100) / 12
     taxa_admin_mensal_valor = params_banco.get('taxa_admin_mensal', 0)
     
-    # --- LÓGICA DE SEGURO ATUALIZADA (DFI + MIP) ---
-    valor_seguro_dfi = params_banco.get('seguro_dfi_mensal', 0)
-    valor_seguro_mip_inicial = params_banco.get('seguro_mip_primeira_parcela', 0)
+    # --- LÓGICA DE SEGURO ATUALIZADA (ESTIMATIVA DFI + MIP) ---
+    seguro_total_inicial = params_banco.get('seguro_total_primeira_parcela', 0)
+    percentual_dfi = params_banco.get('percentual_dfi_estimado', 30.0) / 100
+    valor_seguro_dfi = seguro_total_inicial * percentual_dfi
+    valor_seguro_mip_inicial = seguro_total_inicial - valor_seguro_dfi
     taxa_mip = valor_seguro_mip_inicial / valor_financiado if valor_financiado > 0 else 0
 
     indexador = params_banco.get('indexador', 'TR')
@@ -705,8 +709,15 @@ def criar_parametros_banco(params_construtora):
     with pcol2:
         st.subheader("Taxas e Seguros")
         params_banco['taxa_admin_mensal'] = st.number_input("Taxa de Admin Mensal (R$)", value=25.0, format="%.2f", key="b_admin")
-        params_banco['seguro_dfi_mensal'] = st.number_input("Valor do Seguro DFI (Fixo) (R$)", value=30.00, format="%.2f", key="b_seguro_dfi", help="Seguro de Danos Físicos ao Imóvel, geralmente um valor fixo.")
-        params_banco['seguro_mip_primeira_parcela'] = st.number_input("Valor do Seguro MIP na 1ª Parcela (R$)", value=64.92, format="%.2f", key="b_seguro_mip", help="Seguro de Morte e Invalidez, varia com o saldo devedor. Informe o valor do primeiro mês.")
+        params_banco['seguro_total_primeira_parcela'] = st.number_input("Valor Total do Seguro na 1ª Parcela (R$)", value=94.92, format="%.2f", key="b_seguro_total", help="Informe o valor total do seguro (DFI+MIP) que aparece na primeira parcela da sua simulação.")
+        
+        with st.expander("Ajuste Fino da Estimativa do Seguro"):
+            params_banco['percentual_dfi_estimado'] = st.slider(
+                "Percentual estimado do DFI sobre o seguro total (%)", 
+                min_value=0.0, max_value=100.0, value=30.0, step=0.5,
+                help="O seguro é composto de uma parte fixa (DFI) e uma variável (MIP). Ajuste aqui a proporção que você estima ser a parte fixa. Um valor comum fica entre 25% e 40%."
+            )
+
         params_banco['tr_medio'] = st.number_input("TR média mensal (decimal)", value=0.0, format="%.6f", help="Usado se não houver dados do SGS")
         params_banco['ipca_medio'] = st.number_input("IPCA média mensal (decimal)", value=0.004669, format="%.6f", help="Usado se não houver dados do SGS")
         
@@ -904,4 +915,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
