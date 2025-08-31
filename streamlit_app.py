@@ -763,9 +763,13 @@ def setup_ui():
         if valor_remanescente_pre < 0:
             st.error("A soma das parcelas extras é maior que o valor total a ser pago na fase pré-chaves!")
         
-        parcela_base_pre = valor_remanescente_pre / st.session_state.meses_pre if st.session_state.meses_pre > 0 else 0
+        parcela_base_pre = round(valor_remanescente_pre / st.session_state.meses_pre if st.session_state.meses_pre > 0 else 0, 2)
         st.session_state.parcelas_mensais_pre = parcela_base_pre
-        st.info(f"O valor base da parcela mensal nesta fase é de {(parcela_base_pre)}. Este valor foi calculado subtraindo {format_currency(soma_extras)} (parcelas extras) do total da fase e dividindo pelo nº de meses.")
+        
+        info_text = (f"O valor base da parcela mensal nesta fase é de **{format_currency(parcela_base_pre)}**. "
+                     f"Este valor foi calculado subtraindo {format_currency(soma_extras)} (parcelas extras) "
+                     f"do total da fase e dividindo pelo nº de meses.")
+        st.info(info_text)
 
     # --- FASE PÓS-CHAVES ---
     with st.container(border=True):
@@ -814,7 +818,7 @@ def setup_ui():
         
         st.sidebar.number_input("Juros Pós-Chaves (% a.a.)", value=12.0, format="%.2f", disabled=True, help="Na lógica de cálculo atual da construtora, os juros são progressivos e não baseados nesta taxa fixa.")
 
-    if st.session_state.financiador_pre == "Banco (Caixa, etc.)" or st.session_state.financiador_pos == "Banco (Caixa, etc.)":
+    if st.session_state.get('financiador_pre') == "Banco (Caixa, etc.)" or st.session_state.get('financiador_pos') == "Banco (Caixa, etc.)":
         with st.expander("Parâmetros do Financiamento Bancário", expanded=True):
             st.info("Para replicar uma simulação da Caixa, use o sistema PRICE e a taxa de juros NOMINAL, mesmo que o documento indique SAC.", icon="💡")
             
@@ -894,8 +898,14 @@ def main():
         st.session_state.cet_construtora, st.session_state.cet_banco, st.session_state.cet_combinado, st.session_state.cet_associativo = 0.0, 0.0, 0.0, 0.0
         
         if not st.session_state.df_resultado.empty:
-            params_gerais = {'valor_total_imovel': params['valor_total_imovel'], 'valor_entrada': params['valor_entrada'], 'mes_assinatura': params['mes_assinatura']}
-            st.session_state.df_banco = simular_financiamento_bancario_completo(params_gerais, params_banco, params, real_values)
+            # CORREÇÃO: Usa 'mes_primeira_parcela' para o cenário hipotético para alinhar as linhas do tempo
+            params_gerais_banco_hipotetico = {
+                'valor_total_imovel': params['valor_total_imovel'], 
+                'valor_entrada': params['valor_entrada'], 
+                'mes_assinatura': params['mes_primeira_parcela']
+            }
+            st.session_state.df_banco = simular_financiamento_bancario_completo(params_gerais_banco_hipotetico, params_banco, params, real_values)
+            
             st.session_state.df_combinado = simular_cenario_combinado(params.copy(), params_banco, real_values)
             st.session_state.df_associativo = simular_cenario_associativo(params.copy(), params_banco, real_values)
             
@@ -905,7 +915,7 @@ def main():
                 df = st.session_state[df_key]
                 if not df.empty:
                     if scenario == 'banco':
-                        valor_financiado_liquido = params_gerais['valor_total_imovel'] - params_gerais['valor_entrada']
+                        valor_financiado_liquido = params_gerais_banco_hipotetico['valor_total_imovel'] - params_gerais_banco_hipotetico['valor_entrada']
                         pagamentos_futuros = df['Parcela Total (R$)'].tolist()
                     else:
                         pagamento_t0 = df['Parcela Total (R$)'].iloc[0] if not df[df['Fase'] == 'Assinatura'].empty else 0
@@ -961,3 +971,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
