@@ -36,95 +36,41 @@ def calcular_cet(valor_financiado, pagamentos):
         return 0.0
 
 # ============================================
-# SEGURO: constante empírica + modelo composto + ajuste
+# SEGURO: modo empírico (APENAS 1ª PARCELA NECESSÁRIA)
 # ============================================
-EMPIRICAL_PENULTIMATE_RATIO = 0.7026660641662902  # 62.20 / 88.52 (valor do seu exemplo)
+# Constante empírica (seu exemplo: 62.20 / 88.52)
+EMPIRICAL_PENULTIMATE_RATIO = 0.7026660641662902
 
 def calcular_seguro_composto(valor_seguro_inicial, valor_financiado, saldo_devedor, params_banco, mes_index=None, total_periods=None):
     """
-    Retorna (seguro_mensal, info)
-    Modos:
-      - 'empirico' -> escala a 1ª parcela usando a curva empírica (não pede dados adicionais).
-      - 'composto' -> componente fixo + componente variável sobre saldo (mais técnico).
-    Parâmetros novos no params_banco usados (opcionais):
-      - 'seguro_mode': 'composto' | 'empirico' (default 'composto')
-      - 'seguro_fixo_valor' (R$) ou 'seguro_fixo_pct_financiado'
-      - 'seguro_variavel_pct_saldo' (decimal)
-      - 'seguro_cap_multiplier' (float) -> cap relativo ao seguro inicial
+    Simplificado: MODO EMPÍRICO POR PADRÃO. Usa apenas valor_seguro_inicial (1ª parcela)
+    e escala ao longo dos períodos usando a curva empírica observada.
+    Retorna (seguro_mensal, info).
     """
-    modo_selecionado = params_banco.get('seguro_mode', 'composto')
+    # cap default para segurança (não expor ao usuário)
+    cap_mult = params_banco.get('seguro_cap_multiplier', 3.0)
 
-    # --- MODO EMPÍRICO ---
-    if modo_selecionado == 'empirico':
-        if total_periods is None or mes_index is None or total_periods <= 1:
-            seguro = float(valor_seguro_inicial)
-            info = {'modo': 'empirico_fallback', 'ratio': 1.0, 'total_periods': total_periods, 'mes_index': mes_index}
-            return float(seguro), info
-
-        # interpolação linear entre 1.0 (1ª parcela) e EMPIRICAL_PENULTIMATE_RATIO (penúltimo/último)
-        r = EMPIRICAL_PENULTIMATE_RATIO
-        denom = max(1, total_periods - 1)
-        ratio_t = 1.0 - (1.0 - r) * ((mes_index - 1) / denom)
-        seguro = float(valor_seguro_inicial) * float(ratio_t)
-        info = {'modo': 'empirico', 'ratio': float(ratio_t), 'r_empirico': EMPIRICAL_PENULTIMATE_RATIO,
-                'total_periods': total_periods, 'mes_index': mes_index}
-        cap_mult = params_banco.get('seguro_cap_multiplier', None)
-        if cap_mult and cap_mult > 0:
-            seguro = min(seguro, cap_mult * float(valor_seguro_inicial))
+    # modo empírico único: usa só 1ª parcela e total_periods/mes_index para escalar
+    if total_periods is None or mes_index is None or total_periods <= 1:
+        seguro = float(valor_seguro_inicial)
+        info = {'modo': 'empirico_fallback', 'ratio': 1.0}
         return float(seguro), info
 
-    # --- MODO COMPOSTO ---
-    seguro_fixo = float(params_banco.get('seguro_fixo_valor', 0.0) or 0.0)
-    if seguro_fixo == 0.0:
-        pct_fixo = float(params_banco.get('seguro_fixo_pct_financiado', 0.0) or 0.0)
-        seguro_fixo = pct_fixo * float(valor_financiado)
+    # interpolação linear simples entre 1.0 (1ª parcela) e EMPIRICAL_PENULTIMATE_RATIO (próximo ao fim)
+    r = EMPIRICAL_PENULTIMATE_RATIO
+    denom = max(1, total_periods - 1)
+    ratio_t = 1.0 - (1.0 - r) * ((mes_index - 1) / denom)
+    seguro = float(valor_seguro_inicial) * float(ratio_t)
 
-    if 'seguro_variavel_pct_saldo' in params_banco and params_banco.get('seguro_variavel_pct_saldo') is not None:
-        seguro_var = float(params_banco.get('seguro_variavel_pct_saldo', 0.0)) * float(saldo_devedor)
-        modo = 'composto_param'
-        var_pct = float(params_banco.get('seguro_variavel_pct_saldo', 0.0))
-    else:
-        if float(valor_financiado) > 0:
-            taxa_seguro_mensal_efetiva = (float(valor_seguro_inicial) / float(valor_financiado))
-        else:
-            taxa_seguro_mensal_efetiva = 0.0
-        seguro_var = taxa_seguro_mensal_efetiva * float(saldo_devedor)
-        modo = 'composto_fallback'
-        var_pct = taxa_seguro_mensal_efetiva
-
-    seguro = float(seguro_fixo) + float(seguro_var)
-    cap_mult = params_banco.get('seguro_cap_multiplier', None)
+    # aplica cap para evitar valores incoerentes
     if cap_mult and cap_mult > 0 and valor_seguro_inicial:
         seguro = min(seguro, cap_mult * float(valor_seguro_inicial))
 
-    info = {'modo': modo, 'fixo': float(seguro_fixo), 'var_pct': float(var_pct), 'cap_mult': cap_mult}
+    info = {'modo': 'empirico', 'ratio': float(ratio_t), 'r_empirico': r, 'cap_mult': cap_mult}
     return float(seguro), info
 
-def ajustar_seguro_por_regressao(series_seguro, series_saldo, min_samples=6):
-    """
-    Ajusta modelo linear: seguro = a + b * saldo_devedor
-    Retorna dict com intercept, slope, r2 e n.
-    """
-    try:
-        y = np.asarray(series_seguro, dtype=float)
-        x = np.asarray(series_saldo, dtype=float)
-        mask = np.isfinite(x) & np.isfinite(y)
-        if mask.sum() < min_samples:
-            return {'intercept': None, 'slope': None, 'r2': None, 'n': int(mask.sum())}
-
-        X = np.column_stack([np.ones(mask.sum()), x[mask]])
-        coef, *_ = np.linalg.lstsq(X, y[mask], rcond=None)
-        a, b = coef[0], coef[1]
-        y_pred = a + b * x[mask]
-        ss_res = ((y[mask] - y_pred) ** 2).sum()
-        ss_tot = ((y[mask] - y[mask].mean()) ** 2).sum()
-        r2 = 1 - ss_res / ss_tot if ss_tot != 0 else None
-        return {'intercept': float(a), 'slope': float(b), 'r2': float(r2) if r2 is not None else None, 'n': int(mask.sum())}
-    except Exception as e:
-        return {'intercept': None, 'slope': None, 'r2': None, 'n': 0, 'error': str(e)}
-
 # ============================================
-# LÓGICA DA CONSTRUTORA (MANTIDA, COLUNAS AJUSTADAS)
+# LÓGICA DA CONSTRUTORA (MANTIDA)
 # ============================================
 def construir_parcelas_futuras(params):
     parcelas = []
@@ -305,7 +251,7 @@ def buscar_indices_bc(mes_inicial, meses_total):
         return {}, 0, pd.DataFrame()
 
 # ============================================
-# NOVA LÓGICA DE JUROS DE OBRA (mantendo a tua lógica)
+# JUROS DE OBRA (mantendo sua lógica)
 # ============================================
 def _obter_percentual_obra(mes_obra_atual, prazo_obra_total, metodo, marcos={}):
     """Calcula o percentual de conclusão da obra para um determinado mês."""
@@ -381,8 +327,6 @@ def calcular_juros_obra_detalhado(params_gerais, params_banco, params_construtor
     taxa_admin_mensal_valor = params_banco.get('taxa_admin_mensal', 0)
     valor_seguro_inicial = params_banco.get('seguro_primeira_parcela', 0)
 
-    # (nota: não usamos mais taxa_seguro_mensal_efetiva fixa aqui — usamos calcular_seguro_composto)
-
     for i in range(meses_restantes_obra):
         data_corrente = data_assinatura_banco + relativedelta(months=i)
         mes_total_obra_atual = meses_obra_ate_contrato + i + 1
@@ -402,7 +346,7 @@ def calcular_juros_obra_detalhado(params_gerais, params_banco, params_construtor
         saldo_liberado_obra = valor_financiado * percentual_conclusao_acumulado
         juros_obra = saldo_liberado_obra * taxa_juros_mensal
 
-        # --- novo cálculo do seguro (obra) ---
+        # seguro na obra (apenas 1ª parcela requerida pelo usuário)
         seguro_obra, seguro_info = calcular_seguro_composto(
             valor_seguro_inicial=valor_seguro_inicial,
             valor_financiado=valor_financiado,
@@ -431,7 +375,7 @@ def calcular_juros_obra_detalhado(params_gerais, params_banco, params_construtor
     return pd.DataFrame(historico)
 
 # ============================================
-# SIMULAÇÃO BANCÁRIA (MODIFICADA PARA TABELA DETALHADA)
+# SIMULAÇÃO BANCÁRIA (simplificada no UI: apenas 1ª parcela do seguro)
 # ============================================
 def simular_financiamento_bancario_completo(params_gerais, params_banco, params_construtora, valores_reais=None, offset_mes=0, include_obra=True, valor_financiado_override=None, prazo_amort_override=None):
     historico_df = pd.DataFrame()
@@ -459,7 +403,6 @@ def simular_financiamento_bancario_completo(params_gerais, params_banco, params_
         data_inicio_amortizacao = historico_df['DataObj'].max() + relativedelta(months=1)
 
     historico_amort = []
-    # Lógica de amortização (PRICE ou SAC)
     for i in range(prazo_amort):
         data_corrente = data_inicio_amortizacao + relativedelta(months=i)
         taxa_index, indice_aplicado = 0, 'Fixa'
@@ -474,7 +417,7 @@ def simular_financiamento_bancario_completo(params_gerais, params_banco, params_
         juros = saldo_devedor * taxa_juros_mensal
         ajuste_index = saldo_devedor * taxa_index
 
-        # --- cálculo do seguro na amortização (novo) ---
+        # seguro na amortização (apenas 1ª parcela exigida do usuário)
         seguro_mensal, seguro_info = calcular_seguro_composto(
             valor_seguro_inicial=valor_seguro_inicial,
             valor_financiado=valor_financiado,
@@ -517,7 +460,7 @@ def simular_financiamento_bancario_completo(params_gerais, params_banco, params_
     return pd.concat([historico_df, df_amort], ignore_index=True) if not df_amort.empty else historico_df
 
 # ============================================
-# SIMULAÇÃO COMBINADA (CONSTRUTORA + BANCO)
+# SIMULAÇÕES COMBINADAS / ASSOCIATIVAS (mantidas)
 # ============================================
 def simular_cenario_combinado(params_construtora, params_banco, valores_reais=None):
     df_full_constructor = simular_financiamento(params_construtora, valores_reais)
@@ -554,9 +497,6 @@ def simular_cenario_combinado(params_construtora, params_banco, valores_reais=No
     df_comb = df_comb.sort_values('DataObj').reset_index(drop=True)
     return df_comb
 
-# ============================================
-# NOVA SIMULAÇÃO: ASSOCIATIVO (PRÉ + JUROS OBRA -> PÓS)
-# ============================================
 def simular_cenario_associativo(params_construtora, params_banco, valores_reais=None):
     df_full_constructor = simular_financiamento(params_construtora, valores_reais)
     if df_full_constructor.empty:
@@ -610,7 +550,7 @@ def simular_cenario_associativo(params_construtora, params_banco, valores_reais=
     return df_final.sort_values('DataObj').reset_index(drop=True)
 
 # ============================================
-# INTERFACE STREAMLIT (MODIFICADA)
+# INTERFACE STREAMLIT (SIMPLIFICADA: SÓ 1ª PARCELA DO SEGURO)
 # ============================================
 def criar_parametros():
     st.sidebar.header("Parâmetros Gerais do Imóvel")
@@ -660,7 +600,7 @@ def criar_parametros():
     return params
 
 def criar_parametros_banco(params_construtora):
-    st.info("Para replicar uma simulação da Caixa, use o sistema PRICE e a taxa de juros NOMINAL, mesmo que o documento indique SAC.", icon="💡")
+    st.info("Para replicar uma simulação da Caixa, use o sistema PRICE e a taxa de juros NOMINAL.", icon="💡")
     params_banco = {}
     st.subheader("Parâmetros do Contrato Bancário")
     pcol1, pcol2 = st.columns(2)
@@ -670,7 +610,8 @@ def criar_parametros_banco(params_construtora):
         params_banco['sistema_amortizacao'] = st.selectbox("Sistema de amortização", ['PRICE', 'SAC'], index=0)
     with pcol2:
         params_banco['taxa_admin_mensal'] = st.number_input("Taxa de Admin Mensal (R$)", value=25.0, format="%.2f", key="b_admin")
-        params_banco['seguro_primeira_parcela'] = st.number_input("Valor do Seguro na 1ª Parcela (R$)", value=94.92, format="%.2f", key="b_seguro", help="Informe o valor total do seguro (DFI+MIP) que aparece na primeira parcela da sua simulação.")
+        # --- AQUI: único input exigido para seguro ---
+        params_banco['seguro_primeira_parcela'] = st.number_input("Valor do Seguro na 1ª Parcela (R$)", value=94.92, format="%.2f", key="b_seguro", help="Informe apenas o valor total do seguro (DFI+MIP) da primeira parcela; o simulador estima o resto automaticamente.")
         params_banco['tr_medio'] = st.number_input("TR média mensal (decimal)", value=0.0, format="%.6f", help="Usado se não houver dados do SGS")
         params_banco['ipca_medio'] = st.number_input("IPCA média mensal (decimal)", value=0.004669, format="%.6f", help="Usado se não houver dados do SGS")
 
@@ -686,34 +627,9 @@ def criar_parametros_banco(params_construtora):
         st.warning("O 'Mês da Obra' nos marcos abaixo é contado a partir do Início da Obra do empreendimento.", icon="⚠️")
     params_banco['marcos_liberacao'] = st.text_area("Defina os marcos (mês da obra: % concluído)", "6:20, 12:50, 18:90", help="Formato: mes_da_obra:percentual_total, ... A interpolação será linear entre os marcos.")
 
-    st.subheader("Configuração do Modelo de Seguro")
-    params_banco['seguro_mode'] = st.selectbox(
-        "Modo de estimativa do seguro",
-        ['composto', 'empirico'],
-        index=0,
-        help="Escolha 'empirico' para estimar a evolução do seguro a partir da 1ª parcela usando o padrão observado (sem pedir mais dados). 'composto' usa componente fixo + variável sobre saldo (mais técnico)."
-    )
-
-    params_banco['seguro_fixo_valor'] = st.number_input(
-        "Seguro fixo mensal (R$)",
-        value=0.0, format="%.2f",
-        help="Componente fixo mensal do seguro. Se >0, será somado ao componente variável (usado no modo 'composto')."
-    )
-    params_banco['seguro_fixo_pct_financiado'] = st.number_input(
-        "Seguro fixo (% do financiado por mês)",
-        value=0.0, format="%.6f",
-        help="Alternativa: componente fixo definido como percentual do valor financiado (útil para usar proporção do contrato)."
-    )
-    params_banco['seguro_variavel_pct_saldo'] = st.number_input(
-        "Seguro variável (% do saldo)",
-        value=0.0002, format="%.6f",
-        help="Percentual do saldo devedor que compõe o componente variável do seguro (modo 'composto')."
-    )
-    params_banco['seguro_cap_multiplier'] = st.number_input(
-        "Cap do seguro (multiplicador do seguro 1ª parcela)",
-        value=3.0, format="%.2f",
-        help="Limita o seguro mensal a (multiplicador * seguro_1ª_parcela). Evita picos se parâmetros estiverem incoerentes."
-    )
+    # definição interna: modo empírico por padrão e cap padrão (usuário NÃO precisa alterar)
+    params_banco['seguro_mode'] = 'empirico'
+    params_banco['seguro_cap_multiplier'] = 3.0
 
     return params_banco
 
@@ -795,7 +711,7 @@ def mostrar_comparacao(df_c, df_b, df_comb, df_assoc, cet_c, cet_b, cet_comb, ce
         display_detailed_table(df_assoc, "Financiamento na Planta")
 
 # ============================================
-# MAIN / FLOW
+# MAIN
 # ============================================
 def main():
     st.set_page_config(layout="wide", page_title="Simulador e Comparador de Financiamento")
