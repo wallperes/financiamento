@@ -503,7 +503,7 @@ def simular_financiamento_bancario_completo(params_gerais, params_banco, params_
     return pd.concat([historico_df, df_amort], ignore_index=True) if not df_amort.empty else historico_df
 
 # ============================================
-# SIMULAÇÃO COMBINADA (Sem alterações)
+# SIMULAÇÃO COMBINADA (CORRIGIDA)
 # ============================================
 
 def simular_cenario_combinado(params_construtora, params_banco, valores_reais=None):
@@ -531,9 +531,9 @@ def simular_cenario_combinado(params_construtora, params_banco, valores_reais=No
         'valor_entrada': params_construtora['valor_entrada']
     }
     
-    end_date_target = df_full_constructor['DataObj'].iloc[-1]
-    months_between = (end_date_target.year - data_inicio_banco.year) * 12 + (end_date_target.month - data_inicio_banco.month) + 1
-    prazo_amort_para_banco = months_between if months_between > 0 else params_construtora['meses_pos']
+    # --- CORREÇÃO DA DURAÇÃO ---
+    # O prazo de amortização do banco deve ser o mesmo do cenário da construtora para uma comparação justa.
+    prazo_amort_para_banco = params_construtora['meses_pos']
     
     df_banco = simular_financiamento_bancario_completo(
         params_gerais=params_gerais_banco,
@@ -641,19 +641,21 @@ def mostrar_comparacao(df_c, df_b, df_comb, df_assoc, cet_c, cet_b, cet_comb, ce
     # --- LÓGICA PARA IDENTIFICAR O CENÁRIO DO USUÁRIO ---
     cenario_usuario = None
     if user_scenario_pre == "Construtora" and user_scenario_pos == "Construtora":
-        cenario_usuario = "Construtora"
+        cenario_usuario = "Direto com a Construtora"
     elif user_scenario_pre == "Construtora" and user_scenario_pos == "Banco (Caixa, etc.)":
-        cenario_usuario = "Financiamento na Entrega"
+        cenario_usuario = "Financiamento Pós-Chaves (Sequencial)"
     elif user_scenario_pre == "Banco (Caixa, etc.)":
-        # Assumimos que se o banco está envolvido desde o pré-chaves, é o modelo associativo
-        cenario_usuario = "Financiamento na Planta"
+        cenario_usuario = "Financiamento Associativo (Simultâneo)"
 
     with st.expander("Clique aqui para entender os cenários de comparação"):
         st.markdown("""
-            - **🏗️ Construtora:** Você paga tudo para a construtora, do início ao fim.
-            - **🏦 Banco (Início):** Cenário hipotético onde você pega o financiamento total no banco desde o dia 1 (desconsidera pagamentos à construtora).
-            - **🔑 Financiamento na Entrega (Sequencial):** Você paga a fase de obra para a construtora e, na entrega das chaves, financia o saldo devedor com o banco.
-            - **🌱 Financiamento na Planta (Simultâneo):** Você assina com o banco no início. Durante a obra, paga a construtora E os Juros de Obra para o banco. Após as chaves, começa a amortização normal com o banco.
+            - **🏗️ Direto com a Construtora:** O modelo mais simples. Você paga todas as parcelas, do início ao fim, diretamente para a construtora, que financia o saldo devedor após as chaves com suas próprias regras de juros.
+
+            - **🏦 Financiamento Total no Banco (Hipotético):** Este é um cenário **"E se?"**. Ele ignora os pagamentos da fase de obra e simula como seria se você financiasse o valor total do imóvel (menos a entrada) diretamente com o banco desde o primeiro dia, pagando juros de obra e amortização pelo mesmo prazo total. Útil para comparar o "custo do dinheiro" do banco.
+            
+            - **🔑 Financiamento Pós-Chaves (Sequencial):** Um processo em duas etapas. **1)** Você paga toda a fase de obra (entrada, mensais, extras) para a construtora. **2)** No dia em que recebe as chaves, o saldo devedor restante é quitado através de um novo financiamento com o banco. **Neste modelo não há pagamento de Juros de Obra**.
+
+            - **🌱 Financiamento Associativo (Simultâneo):** O modelo mais comum no mercado. Você assina o financiamento com o banco logo no início. Durante a fase de obra, você tem **duas obrigações mensais**: pagar a parcela para a construtora E pagar os **Juros de Obra** para o banco. Após receber as chaves, os pagamentos para a construtora cessam e você começa a pagar apenas a parcela de amortização (principal + juros) para o banco.
         """)
         
     c_custo_total = df_c['Parcela Total (R$)'].sum() if not df_c.empty else 0
@@ -665,26 +667,26 @@ def mostrar_comparacao(df_c, df_b, df_comb, df_assoc, cet_c, cet_b, cet_comb, ce
     
     def display_scenario(container, title, df, cet, base_cost, user_scenario_name):
         with container:
-            header = f"⭐ {title} (Seu Cenário)" if title == user_scenario_name else title
+            header = f"⭐ {title}" if title == user_scenario_name else title
             st.subheader(header)
             if not df.empty:
                 cost = df['Parcela Total (R$)'].sum()
-                delta = cost - base_cost if base_cost > 0 and title != "Construtora" else None
+                delta = cost - base_cost if base_cost > 0 and title != "Direto com a Construtora" else None
                 st.metric("Custo Total", format_currency(cost), delta=format_currency(delta) if delta is not None else None)
                 st.metric("Maior Parcela", format_currency(df['Parcela Total (R$)'].max()))
                 st.metric("Término", df['DataObj'].iloc[-1].strftime("%m/%Y"))
                 st.metric("CET (Custo Efetivo Total)", f"{cet:.2f}% a.a.")
 
-    display_scenario(res1, "Construtora", df_c, cet_c, c_custo_total, cenario_usuario)
-    display_scenario(res2, "Banco (Início)", df_b, cet_b, c_custo_total, cenario_usuario)
-    display_scenario(res3, "Financiamento na Entrega", df_comb, cet_comb, c_custo_total, cenario_usuario)
-    display_scenario(res4, "Financiamento na Planta", df_assoc, cet_assoc, c_custo_total, cenario_usuario)
+    display_scenario(res1, "Direto com a Construtora", df_c, cet_c, c_custo_total, cenario_usuario)
+    display_scenario(res2, "Financiamento Total no Banco (Hipotético)", df_b, cet_b, c_custo_total, cenario_usuario)
+    display_scenario(res3, "Financiamento Pós-Chaves (Sequencial)", df_comb, cet_comb, c_custo_total, cenario_usuario)
+    display_scenario(res4, "Financiamento Associativo (Simultâneo)", df_assoc, cet_assoc, c_custo_total, cenario_usuario)
 
     all_dfs = [
         df[['DataObj', 'Parcela Total (R$)']].rename(columns={'Parcela Total (R$)': name})
         for df, name in [
-            (df_c, 'Construtora'), (df_b, 'Banco (Início)'),
-            (df_comb, 'Financ. na Entrega'), (df_assoc, 'Financ. na Planta')
+            (df_c, 'Construtora'), (df_b, 'Banco (Hipotético)'),
+            (df_comb, 'Pós-Chaves (Sequencial)'), (df_assoc, 'Associativo (Simultâneo)')
         ] if not df.empty
     ]
     
@@ -697,10 +699,10 @@ def mostrar_comparacao(df_c, df_b, df_comb, df_assoc, cet_c, cet_b, cet_comb, ce
         st.line_chart(df_merged.set_index('DataObj'))
         
     st.subheader("Análise Detalhada dos Fluxos de Pagamento")
-    if not df_c.empty: display_detailed_table(df_c, "Construtora")
-    if not df_b.empty: display_detailed_table(df_b, "Banco (Início)")
-    if not df_comb.empty: display_detailed_table(df_comb, "Financiamento na Entrega")
-    if not df_assoc.empty: display_detailed_table(df_assoc, "Financiamento na Planta")
+    if not df_c.empty: display_detailed_table(df_c, "Direto com a Construtora")
+    if not df_b.empty: display_detailed_table(df_b, "Financiamento Total no Banco (Hipotético)")
+    if not df_comb.empty: display_detailed_table(df_comb, "Financiamento Pós-Chaves (Sequencial)")
+    if not df_assoc.empty: display_detailed_table(df_assoc, "Financiamento Associativo (Simultâneo)")
 
 # ============================================
 # NOVA INTERFACE STREAMLIT (REESTRUTURADA E CORRIGIDA)
@@ -734,7 +736,6 @@ def setup_ui():
         valor_a_financiar_pre = col1.number_input("Valor total a ser pago na fase pré-chaves", value=123217.46, format="%.2f", key="valor_a_financiar_pre")
         col2.number_input("Nº de meses na fase pré-chaves", value=17, key="meses_pre")
         
-        # --- LÓGICA DE PARCELAS EXTRAS ---
         parcelas_semestrais, parcelas_anuais = {}, {}
         if st.session_state.financiador_pre == "Construtora":
             with st.expander("Adicionar Parcelas Extras (Semestrais/Anuais)"):
@@ -756,7 +757,6 @@ def setup_ui():
         st.session_state.parcelas_semestrais = parcelas_semestrais
         st.session_state.parcelas_anuais = parcelas_anuais
 
-        # --- CÁLCULO CORRIGIDO DA PARCELA BASE PRÉ ---
         soma_extras = sum(st.session_state.parcelas_semestrais.values()) + sum(st.session_state.parcelas_anuais.values())
         valor_remanescente_pre = valor_a_financiar_pre - soma_extras
         
@@ -765,7 +765,7 @@ def setup_ui():
         
         parcela_base_pre = valor_remanescente_pre / st.session_state.meses_pre if st.session_state.meses_pre > 0 else 0
         st.session_state.parcelas_mensais_pre = parcela_base_pre
-        st.info(f"O valor base da parcela mensal nesta fase é de **{format_currency(parcela_base_pre)}** . Este valor foi calculado subtraindo {format_currency(soma_extras)} (parcelas extras) do total da fase e dividindo pelo nº de meses.")
+        st.info(f"O valor base da parcela mensal nesta fase é de **{format_currency(parcela_base_pre)}**. Este valor foi calculado subtraindo {format_currency(soma_extras)} (parcelas extras) do total da fase e dividindo pelo nº de meses.")
 
     # --- FASE PÓS-CHAVES ---
     with st.container(border=True):
@@ -788,11 +788,9 @@ def setup_ui():
 
     st.divider()
     if st.button("Carregar Parâmetros Padrão", help="Preenche as seções abaixo com valores comuns de mercado para agilizar a simulação."):
-        # Construtora
         st.session_state.inicio_correcao = 1
         st.session_state.incc_medio_percent = 0.5446
         st.session_state.ipca_medio_percent = 0.4669
-        # Banco
         st.session_state.taxa_juros_anual = 10.0
         st.session_state.indexador = 'TR'
         st.session_state.sistema_amortizacao = 'PRICE'
@@ -807,9 +805,9 @@ def setup_ui():
 
     with st.expander("Parâmetros de Correção (Construtora)", expanded=True):
         pcol1, pcol2, pcol3 = st.columns(3)
-        pcol1.number_input("Aplicar correção a partir de qual parcela?", min_value=1, value=1, key="inicio_correcao")
-        incc_percent = pcol2.number_input("INCC médio mensal (%)", value=0.5446, format="%.4f", key="incc_medio_percent")
-        ipca_percent = pcol3.number_input("IPCA médio mensal (%)", value=0.4669, format="%.4f", key="ipca_medio_percent")
+        pcol1.number_input("Aplicar correção a partir de qual parcela?", min_value=1, key="inicio_correcao")
+        incc_percent = pcol2.number_input("INCC médio mensal (%)", format="%.4f", key="incc_medio_percent")
+        ipca_percent = pcol3.number_input("IPCA médio mensal (%)", format="%.4f", key="ipca_medio_percent")
         
         st.session_state.incc_medio = incc_percent / 100
         st.session_state.ipca_medio = ipca_percent / 100
@@ -823,15 +821,15 @@ def setup_ui():
             bcol1, bcol2 = st.columns(2)
             with bcol1:
                 st.subheader("Condições Gerais")
-                st.number_input("Taxa de Juros Nominal (% a.a.)", value=10.0, format="%.4f", key="taxa_juros_anual")
+                st.number_input("Taxa de Juros Nominal (% a.a.)", format="%.4f", key="taxa_juros_anual")
                 st.selectbox("Indexador (pós)", ['TR', 'IPCA', 'Fixa'], key="indexador")
                 st.selectbox("Sistema de amortização", ['PRICE', 'SAC'], key="sistema_amortizacao")
             
             with bcol2:
                 st.subheader("Taxas e Seguros")
-                st.number_input("Taxa de Admin Mensal (R$)", value=25.0, format="%.2f", key="taxa_admin_mensal")
-                st.number_input("Valor Total do Seguro na 1ª Parcela (R$)", value=94.92, format="%.2f", key="seguro_total_primeira_parcela", help="Informe o valor total do seguro (DFI+MIP) que aparece na primeira parcela da sua simulação.")
-                st.slider("Percentual estimado do DFI sobre o seguro total (%)", min_value=0.0, max_value=100.0, value=30.0, step=0.5, help="O seguro é composto de uma parte fixa (DFI) e uma variável (MIP). Ajuste aqui a proporção que você estima ser a parte fixa.", key="percentual_dfi_estimado")
+                st.number_input("Taxa de Admin Mensal (R$)", format="%.2f", key="taxa_admin_mensal")
+                st.number_input("Valor Total do Seguro na 1ª Parcela (R$)", format="%.2f", key="seguro_total_primeira_parcela", help="Informe o valor total do seguro (DFI+MIP) que aparece na primeira parcela da sua simulação.")
+                st.slider("Percentual estimado do DFI sobre o seguro total (%)", min_value=0.0, max_value=100.0, step=0.5, help="O seguro é composto de uma parte fixa (DFI) e uma variável (MIP). Ajuste aqui a proporção que você estima ser a parte fixa.", key="percentual_dfi_estimado")
             
             st.subheader("Juros de Obra e Correções Futuras")
             st.selectbox("Método de Evolução da Obra", ['Progressiva (S-Curve)', 'Linear', 'Manual'], index=0, help="Define como o percentual de conclusão da obra evolui.", key="metodo_calculo_juros")
@@ -839,8 +837,8 @@ def setup_ui():
                  st.text_area("Defina os marcos (mês da obra: % concluído)", "6:20, 12:50, 18:90", help="Formato: mes_da_obra:percentual_total, ...", key="marcos_liberacao")
             
             jcol1, jcol2 = st.columns(2)
-            jcol1.number_input("TR média mensal (decimal)", value=0.0, format="%.6f", help="Usado se não houver dados do SGS", key="tr_medio")
-            jcol2.number_input("IPCA média mensal (decimal)", value=0.004669, format="%.6f", help="Usado se não houver dados do SGS", key="ipca_medio_banco")
+            jcol1.number_input("TR média mensal (decimal)", format="%.6f", help="Usado se não houver dados do SGS", key="tr_medio")
+            jcol2.number_input("IPCA média mensal (decimal)", format="%.6f", help="Usado se não houver dados do SGS", key="ipca_medio_banco")
 
 def main():
     st.set_page_config(layout="wide", page_title="Simulador e Comparador de Financiamento")
