@@ -371,8 +371,10 @@ def calcular_juros_obra_detalhado(params_gerais, params_banco, params_construtor
         
     taxa_juros_mensal = (params_banco['taxa_juros_anual'] / 100) / 12
     taxa_admin_mensal_valor = params_banco.get('taxa_admin_mensal', 0)
-    valor_seguro_inicial = params_banco.get('seguro_primeira_parcela', 0)
-    taxa_seguro_mensal_efetiva = valor_seguro_inicial / valor_financiado if valor_financiado > 0 else 0
+    # --- LÓGICA DE SEGURO ATUALIZADA (DFI + MIP) ---
+    valor_seguro_dfi = params_banco.get('seguro_dfi_mensal', 0)
+    valor_seguro_mip_inicial = params_banco.get('seguro_mip_primeira_parcela', 0)
+    taxa_mip = valor_seguro_mip_inicial / valor_financiado if valor_financiado > 0 else 0
     
     for i in range(meses_restantes_obra):
         data_corrente = data_assinatura_banco + relativedelta(months=i)
@@ -396,7 +398,11 @@ def calcular_juros_obra_detalhado(params_gerais, params_banco, params_construtor
         
         saldo_liberado_obra = valor_financiado * percentual_conclusao_acumulado
         juros_obra = saldo_liberado_obra * taxa_juros_mensal
-        seguro_obra = taxa_seguro_mensal_efetiva * saldo_liberado_obra
+        
+        # O seguro MIP incide sobre o valor liberado, enquanto DFI é fixo.
+        seguro_mip_obra = taxa_mip * saldo_liberado_obra
+        seguro_obra = seguro_mip_obra + valor_seguro_dfi
+        
         encargos_obra = taxa_admin_mensal_valor + seguro_obra
         parcela_obra = juros_obra + encargos_obra
         
@@ -426,8 +432,12 @@ def simular_financiamento_bancario_completo(params_gerais, params_banco, params_
     valor_financiado = valor_financiado_override if valor_financiado_override is not None else (params_gerais['valor_total_imovel'] - params_gerais['valor_entrada'])
     taxa_juros_mensal = (params_banco['taxa_juros_anual'] / 100) / 12
     taxa_admin_mensal_valor = params_banco.get('taxa_admin_mensal', 0)
-    valor_seguro_inicial = params_banco.get('seguro_primeira_parcela', 0)
-    taxa_seguro_mensal_efetiva = valor_seguro_inicial / valor_financiado if valor_financiado > 0 else 0
+    
+    # --- LÓGICA DE SEGURO ATUALIZADA (DFI + MIP) ---
+    valor_seguro_dfi = params_banco.get('seguro_dfi_mensal', 0)
+    valor_seguro_mip_inicial = params_banco.get('seguro_mip_primeira_parcela', 0)
+    taxa_mip = valor_seguro_mip_inicial / valor_financiado if valor_financiado > 0 else 0
+
     indexador = params_banco.get('indexador', 'TR')
     tr_medio = params_banco.get('tr_medio', 0.0)
     ipca_medio = params_banco.get('ipca_medio', 0.0)
@@ -465,7 +475,11 @@ def simular_financiamento_bancario_completo(params_gerais, params_banco, params_
                 
         juros = saldo_devedor * taxa_juros_mensal
         ajuste_index = saldo_devedor * taxa_index
-        seguro_mensal = taxa_seguro_mensal_efetiva * saldo_devedor
+        
+        # O seguro MIP incide sobre o saldo devedor, enquanto DFI é fixo.
+        seguro_mip = taxa_mip * saldo_devedor
+        seguro_mensal = seguro_mip + valor_seguro_dfi
+
         encargos = seguro_mensal + taxa_admin_mensal_valor
         amortizacao = 0
         
@@ -658,20 +672,21 @@ def criar_parametros():
     params['valor_amortizacao_pos'] = col4.number_input("Valor parcela pós (R$)", value=3104.62, format="%.2f")
     
     st.sidebar.subheader("Parcelas Extras (na fase pré-chaves)")
-    params['parcelas_semestrais'], params['parcelas_anuais'] = {}, {}
-    st.sidebar.write("Parcelas Semestrais:")
-    for i in range(4):
-        cs1, cs2 = st.sidebar.columns(2)
-        mes_sem = cs1.number_input(f"Mês da {i+1}ª semestral", value=6*(i+1) if i<2 else 0, key=f"sem_mes_{i}")
-        valor_sem = cs2.number_input(f"Valor {i+1} (R$)", value=6000.0 if i<2 else 0.0, key=f"sem_val_{i}", format="%.2f")
-        if mes_sem > 0 and valor_sem > 0:
-            params['parcelas_semestrais'][int(mes_sem)] = valor_sem
-            
-    st.sidebar.write("Parcelas Anuais:")
-    ca1, ca2 = st.sidebar.columns(2)
-    mes_anu, valor_anu = ca1.number_input("Mês da anual", value=17, key="anu_mes"), ca2.number_input("Valor anual (R$)", value=43300.0, key="anu_val", format="%.2f")
-    if mes_anu > 0 and valor_anu > 0:
-        params['parcelas_anuais'][int(mes_anu)] = valor_anu
+    with st.sidebar.expander("Configurar Parcelas Semestrais e Anuais"):
+        params['parcelas_semestrais'], params['parcelas_anuais'] = {}, {}
+        st.sidebar.write("Parcelas Semestrais:")
+        for i in range(4):
+            cs1, cs2 = st.sidebar.columns(2)
+            mes_sem = cs1.number_input(f"Mês da {i+1}ª semestral", value=6*(i+1) if i<2 else 0, key=f"sem_mes_{i}")
+            valor_sem = cs2.number_input(f"Valor {i+1} (R$)", value=6000.0 if i<2 else 0.0, key=f"sem_val_{i}", format="%.2f")
+            if mes_sem > 0 and valor_sem > 0:
+                params['parcelas_semestrais'][int(mes_sem)] = valor_sem
+                
+        st.sidebar.write("Parcelas Anuais:")
+        ca1, ca2 = st.sidebar.columns(2)
+        mes_anu, valor_anu = ca1.number_input("Mês da anual", value=17, key="anu_mes"), ca2.number_input("Valor anual (R$)", value=43300.0, key="anu_val", format="%.2f")
+        if mes_anu > 0 and valor_anu > 0:
+            params['parcelas_anuais'][int(mes_anu)] = valor_anu
         
     params['percentual_minimo_quitacao'], params['limite_correcao'] = 0.3, None
     return params
@@ -688,8 +703,10 @@ def criar_parametros_banco(params_construtora):
         params_banco['sistema_amortizacao'] = st.selectbox("Sistema de amortização", ['PRICE', 'SAC'], index=0)
         
     with pcol2:
+        st.subheader("Taxas e Seguros")
         params_banco['taxa_admin_mensal'] = st.number_input("Taxa de Admin Mensal (R$)", value=25.0, format="%.2f", key="b_admin")
-        params_banco['seguro_primeira_parcela'] = st.number_input("Valor do Seguro na 1ª Parcela (R$)", value=94.92, format="%.2f", key="b_seguro", help="Informe o valor total do seguro (DFI+MIP) que aparece na primeira parcela da sua simulação.")
+        params_banco['seguro_dfi_mensal'] = st.number_input("Valor do Seguro DFI (Fixo) (R$)", value=30.00, format="%.2f", key="b_seguro_dfi", help="Seguro de Danos Físicos ao Imóvel, geralmente um valor fixo.")
+        params_banco['seguro_mip_primeira_parcela'] = st.number_input("Valor do Seguro MIP na 1ª Parcela (R$)", value=64.92, format="%.2f", key="b_seguro_mip", help="Seguro de Morte e Invalidez, varia com o saldo devedor. Informe o valor do primeiro mês.")
         params_banco['tr_medio'] = st.number_input("TR média mensal (decimal)", value=0.0, format="%.6f", help="Usado se não houver dados do SGS")
         params_banco['ipca_medio'] = st.number_input("IPCA média mensal (decimal)", value=0.004669, format="%.6f", help="Usado se não houver dados do SGS")
         
@@ -887,3 +904,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
