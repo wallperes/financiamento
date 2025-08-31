@@ -765,7 +765,7 @@ def setup_ui():
         
         parcela_base_pre = valor_remanescente_pre / st.session_state.meses_pre if st.session_state.meses_pre > 0 else 0
         st.session_state.parcelas_mensais_pre = parcela_base_pre
-        st.info(f"O valor base da parcela mensal nesta fase é de {format_currency(parcela_base_pre)}. Este valor foi calculado subtraindo {format_currency(soma_extras)} (parcelas extras) do total da fase e dividindo pelo nº de meses.")
+        st.info(f"O valor base da parcela mensal nesta fase é de {(parcela_base_pre)}. Este valor foi calculado subtraindo {format_currency(soma_extras)} (parcelas extras) do total da fase e dividindo pelo nº de meses.")
 
     # --- FASE PÓS-CHAVES ---
     with st.container(border=True):
