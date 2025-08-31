@@ -765,7 +765,7 @@ def setup_ui():
         
         parcela_base_pre = valor_remanescente_pre / st.session_state.meses_pre if st.session_state.meses_pre > 0 else 0
         st.session_state.parcelas_mensais_pre = parcela_base_pre
-        st.info(f"O valor base da parcela mensal nesta fase é de **{format_currency(parcela_base_pre)}**. Este valor foi calculado subtraindo {format_currency(soma_extras)} (parcelas extras) do total da fase e dividindo pelo nº de meses.")
+        st.info(f"O valor base da parcela mensal nesta fase é de **{format_currency(parcela_base_pre)}** . Este valor foi calculado subtraindo {format_currency(soma_extras)} (parcelas extras) do total da fase e dividindo pelo nº de meses.")
 
     # --- FASE PÓS-CHAVES ---
     with st.container(border=True):
@@ -788,19 +788,59 @@ def setup_ui():
 
     st.divider()
     if st.button("Carregar Parâmetros Padrão", help="Preenche as seções abaixo com valores comuns de mercado para agilizar a simulação."):
-        # ... (código do botão sem alteração)
+        # Construtora
+        st.session_state.inicio_correcao = 1
+        st.session_state.incc_medio_percent = 0.5446
+        st.session_state.ipca_medio_percent = 0.4669
+        # Banco
+        st.session_state.taxa_juros_anual = 10.0
+        st.session_state.indexador = 'TR'
+        st.session_state.sistema_amortizacao = 'PRICE'
+        st.session_state.taxa_admin_mensal = 25.0
+        st.session_state.seguro_total_primeira_parcela = 94.92
+        st.session_state.percentual_dfi_estimado = 30.0
+        st.session_state.tr_medio = 0.0
+        st.session_state.ipca_medio_banco = 0.004669
         st.rerun()
 
     st.header("Parâmetros Detalhados")
 
     with st.expander("Parâmetros de Correção (Construtora)", expanded=True):
-        # ... (código dos parâmetros sem alteração)
-        pass # Conteúdo já está correto
+        pcol1, pcol2, pcol3 = st.columns(3)
+        pcol1.number_input("Aplicar correção a partir de qual parcela?", min_value=1, value=1, key="inicio_correcao")
+        incc_percent = pcol2.number_input("INCC médio mensal (%)", value=0.5446, format="%.4f", key="incc_medio_percent")
+        ipca_percent = pcol3.number_input("IPCA médio mensal (%)", value=0.4669, format="%.4f", key="ipca_medio_percent")
+        
+        st.session_state.incc_medio = incc_percent / 100
+        st.session_state.ipca_medio = ipca_percent / 100
+        
+        st.sidebar.number_input("Juros Pós-Chaves (% a.a.)", value=12.0, format="%.2f", disabled=True, help="Na lógica de cálculo atual da construtora, os juros são progressivos e não baseados nesta taxa fixa.")
 
     if st.session_state.financiador_pre == "Banco (Caixa, etc.)" or st.session_state.financiador_pos == "Banco (Caixa, etc.)":
         with st.expander("Parâmetros do Financiamento Bancário", expanded=True):
-            # ... (código dos parâmetros sem alteração)
-            pass # Conteúdo já está correto
+            st.info("Para replicar uma simulação da Caixa, use o sistema PRICE e a taxa de juros NOMINAL, mesmo que o documento indique SAC.", icon="💡")
+            
+            bcol1, bcol2 = st.columns(2)
+            with bcol1:
+                st.subheader("Condições Gerais")
+                st.number_input("Taxa de Juros Nominal (% a.a.)", value=10.0, format="%.4f", key="taxa_juros_anual")
+                st.selectbox("Indexador (pós)", ['TR', 'IPCA', 'Fixa'], key="indexador")
+                st.selectbox("Sistema de amortização", ['PRICE', 'SAC'], key="sistema_amortizacao")
+            
+            with bcol2:
+                st.subheader("Taxas e Seguros")
+                st.number_input("Taxa de Admin Mensal (R$)", value=25.0, format="%.2f", key="taxa_admin_mensal")
+                st.number_input("Valor Total do Seguro na 1ª Parcela (R$)", value=94.92, format="%.2f", key="seguro_total_primeira_parcela", help="Informe o valor total do seguro (DFI+MIP) que aparece na primeira parcela da sua simulação.")
+                st.slider("Percentual estimado do DFI sobre o seguro total (%)", min_value=0.0, max_value=100.0, value=30.0, step=0.5, help="O seguro é composto de uma parte fixa (DFI) e uma variável (MIP). Ajuste aqui a proporção que você estima ser a parte fixa.", key="percentual_dfi_estimado")
+            
+            st.subheader("Juros de Obra e Correções Futuras")
+            st.selectbox("Método de Evolução da Obra", ['Progressiva (S-Curve)', 'Linear', 'Manual'], index=0, help="Define como o percentual de conclusão da obra evolui.", key="metodo_calculo_juros")
+            if 'metodo_calculo_juros' in st.session_state and st.session_state.metodo_calculo_juros == 'Manual':
+                 st.text_area("Defina os marcos (mês da obra: % concluído)", "6:20, 12:50, 18:90", help="Formato: mes_da_obra:percentual_total, ...", key="marcos_liberacao")
+            
+            jcol1, jcol2 = st.columns(2)
+            jcol1.number_input("TR média mensal (decimal)", value=0.0, format="%.6f", help="Usado se não houver dados do SGS", key="tr_medio")
+            jcol2.number_input("IPCA média mensal (decimal)", value=0.004669, format="%.6f", help="Usado se não houver dados do SGS", key="ipca_medio_banco")
 
 def main():
     st.set_page_config(layout="wide", page_title="Simulador e Comparador de Financiamento")
