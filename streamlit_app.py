@@ -238,7 +238,7 @@ def simular_financiamento(params, valores_reais=None):
     return pd.DataFrame(historico)
 
 # ============================================
-# BUSCAR ÍNDICES BC (Sem alterações)
+# BUSCAR ÍNDICES BC (MODIFICADO)
 # ============================================
 
 def buscar_indices_bc(mes_inicial, meses_total):
@@ -249,14 +249,16 @@ def buscar_indices_bc(mes_inicial, meses_total):
         start_str = data_inicio_busca.strftime("%d/%m/%Y")
         end_str = data_fim_busca.strftime("%d/%m/%Y")
         
-        df = sgs.dataframe([192, 433, 226], start=start_str, end=end_str)
+        # Adicionado código 4390 para a Poupança
+        df = sgs.dataframe([192, 433, 226, 4390], start=start_str, end=end_str)
         if df.empty:
             return {}, 0, pd.DataFrame()
             
-        df = df.rename(columns={192: 'incc', 433: 'ipca', 226: 'tr'})
+        df = df.rename(columns={192: 'incc', 433: 'ipca', 226: 'tr', 4390: 'poupanca'})
         df['incc'] /= 100
         df['ipca'] /= 100
         df['tr'] /= 100
+        df['poupanca'] /= 100
         
         indices = {}
         ultimo_mes_com_dado = 0
@@ -267,11 +269,11 @@ def buscar_indices_bc(mes_inicial, meses_total):
             data_referencia_str = (current_date_simulacao - relativedelta(months=2)).strftime("%Y-%m-%d")
             if data_referencia_str in dados_por_data:
                 valores = dados_por_data[data_referencia_str]
-                if pd.notna(valores.get('incc')) or pd.notna(valores.get('ipca')) or pd.notna(valores.get('tr')):
+                if pd.notna(valores.get('incc')) or pd.notna(valores.get('ipca')) or pd.notna(valores.get('tr')) or pd.notna(valores.get('poupanca')):
                     ultimo_mes_com_dado = mes
                 indices[mes] = valores
             else:
-                indices[mes] = {'incc': None, 'ipca': None, 'tr': None}
+                indices[mes] = {'incc': None, 'ipca': None, 'tr': None, 'poupanca': None}
             current_date_simulacao += relativedelta(months=1)
             
         return indices, ultimo_mes_com_dado, df
@@ -413,7 +415,7 @@ def calcular_juros_obra_detalhado(params_gerais, params_banco, params_construtor
     return pd.DataFrame(historico)
 
 # ============================================
-# SIMULAÇÃO BANCÁRIA (Sem alterações)
+# SIMULAÇÃO BANCÁRIA (MODIFICADO)
 # ============================================
 
 def simular_financiamento_bancario_completo(params_gerais, params_banco, params_construtora, valores_reais=None, offset_mes=0, include_obra=True, valor_financiado_override=None, prazo_amort_override=None):
@@ -431,6 +433,7 @@ def simular_financiamento_bancario_completo(params_gerais, params_banco, params_
     indexador = params_banco.get('indexador', 'TR')
     tr_medio = params_banco.get('tr_medio', 0.0)
     ipca_medio = params_banco.get('ipca_medio', 0.0)
+    poupanca_medio = params_banco.get('poupanca_medio', 0.0)
     sistema = params_banco.get('sistema_amortizacao', 'PRICE')
     
     if include_obra:
@@ -453,13 +456,18 @@ def simular_financiamento_bancario_completo(params_gerais, params_banco, params_
         data_corrente = data_inicio_amortizacao + relativedelta(months=i)
         
         taxa_index, indice_aplicado = 0, 'Fixa'
-        if indexador in ['TR', 'IPCA']:
+        if indexador in ['TR', 'IPCA', 'Poupança']:
             chave_mes = offset_mes + i + 1
             if valores_reais and chave_mes in valores_reais and pd.notna(valores_reais[chave_mes].get(indexador.lower())):
                 taxa_index = valores_reais[chave_mes].get(indexador.lower(), 0) or 0
                 indice_aplicado = indexador
             else:
-                taxa_index = tr_medio if indexador == 'TR' else ipca_medio
+                if indexador == 'TR':
+                    taxa_index = tr_medio
+                elif indexador == 'IPCA':
+                    taxa_index = ipca_medio
+                elif indexador == 'Poupança':
+                    taxa_index = poupanca_medio
                 indice_aplicado = f'{indexador} (Médio)'
                 
         juros = saldo_devedor * taxa_juros_mensal
@@ -803,6 +811,7 @@ def setup_ui():
         st.session_state.percentual_dfi_estimado = 30.0
         st.session_state.tr_medio = 0.0
         st.session_state.ipca_medio_banco = 0.004669
+        st.session_state.poupanca_medio = 0.005
         st.rerun()
 
     st.header("Parâmetros Detalhados")
@@ -826,7 +835,7 @@ def setup_ui():
             with bcol1:
                 st.subheader("Condições Gerais")
                 st.number_input("Taxa de Juros Nominal (% a.a.)", format="%.4f", key="taxa_juros_anual")
-                st.selectbox("Indexador (pós)", ['TR', 'IPCA', 'Fixa'], key="indexador")
+                st.selectbox("Indexador (pós)", ['TR', 'IPCA', 'Poupança', 'Fixa'], key="indexador")
                 st.selectbox("Sistema de amortização", ['PRICE', 'SAC'], key="sistema_amortizacao")
             
             with bcol2:
@@ -840,9 +849,10 @@ def setup_ui():
             if 'metodo_calculo_juros' in st.session_state and st.session_state.metodo_calculo_juros == 'Manual':
                  st.text_area("Defina os marcos (mês da obra: % concluído)", "6:20, 12:50, 18:90", help="Formato: mes_da_obra:percentual_total, ...", key="marcos_liberacao")
             
-            jcol1, jcol2 = st.columns(2)
+            jcol1, jcol2, jcol3 = st.columns(3)
             jcol1.number_input("TR média mensal (decimal)", format="%.6f", help="Usado se não houver dados do SGS", key="tr_medio")
             jcol2.number_input("IPCA média mensal (decimal)", format="%.6f", help="Usado se não houver dados do SGS", key="ipca_medio_banco")
+            jcol3.number_input("Poupança média mensal (decimal)", format="%.6f", help="Usado se não houver dados do SGS. Ex: 0.5% = 0.005", key="poupanca_medio")
 
 def main():
     st.set_page_config(layout="wide", page_title="Simulador e Comparador de Financiamento")
@@ -884,6 +894,7 @@ def main():
         'percentual_dfi_estimado': st.session_state.get('percentual_dfi_estimado', 30.0),
         'tr_medio': st.session_state.get('tr_medio', 0.0),
         'ipca_medio': st.session_state.get('ipca_medio_banco', 0.0),
+        'poupanca_medio': st.session_state.get('poupanca_medio', 0.0),
         'metodo_calculo_juros': st.session_state.get('metodo_calculo_juros', 'Progressiva (S-Curve)'),
         'marcos_liberacao': st.session_state.get('marcos_liberacao', '')
     }
@@ -971,4 +982,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
