@@ -730,37 +730,41 @@ def setup_ui():
     
     # --- 1. PARÂMETROS GERAIS NA SIDEBAR ---
     st.sidebar.header("Parâmetros Gerais do Contrato")
-    st.session_state.data_inicio_obra = st.sidebar.date_input("Início da obra (empreendimento)", value=date(2024, 10, 1))
-    st.session_state.mes_assinatura = st.sidebar.text_input("Mês da assinatura do seu contrato (MM/AAAA)", "04/2025")
-    st.session_state.mes_primeira_parcela = st.sidebar.text_input("Mês da 1ª parcela (MM/AAAA)", "05/2025")
-    st.session_state.valor_total_imovel = st.sidebar.number_input("Valor total do imóvel", value=455750.0, format="%.2f", key="val_imovel")
-    st.session_state.valor_entrada = st.sidebar.number_input("Valor total da entrada", value=22270.54, format="%.2f", key="val_entrada")
-    st.session_state.tipo_pagamento_entrada = st.sidebar.selectbox("Como a entrada é paga?", ['Parcelada', 'Paga no ato'], key="tipo_entrada")
+    # CORREÇÃO: Removido 'st.session_state.chave = ' do início de cada widget
+    st.sidebar.date_input("Início da obra (empreendimento)", value=date(2024, 10, 1), key="data_inicio_obra")
+    st.sidebar.text_input("Mês da assinatura do seu contrato (MM/AAAA)", "04/2025", key="mes_assinatura")
+    st.sidebar.text_input("Mês da 1ª parcela (MM/AAAA)", "05/2025", key="mes_primeira_parcela")
+    st.sidebar.number_input("Valor total do imóvel", value=455750.0, format="%.2f", key="valor_total_imovel")
+    st.sidebar.number_input("Valor total da entrada", value=22270.54, format="%.2f", key="valor_entrada")
+    st.sidebar.selectbox("Como a entrada é paga?", ['Parcelada', 'Paga no ato'], key="tipo_pagamento_entrada")
 
     if st.session_state.tipo_pagamento_entrada == 'Parcelada':
-        st.session_state.num_parcelas_entrada = st.sidebar.number_input("Nº de parcelas da entrada", min_value=1, value=3, key="num_parcelas_ent")
+        st.sidebar.number_input("Nº de parcelas da entrada", min_value=1, value=3, key="num_parcelas_entrada")
     else:
-        st.session_state.num_parcelas_entrada = 0
+        # Garante que a chave exista mesmo se a condição não for atendida
+        if 'num_parcelas_entrada' not in st.session_state:
+            st.session_state.num_parcelas_entrada = 0
 
     st.header("Definição das Fases do Financiamento")
 
     # --- 2. FASE PRÉ-CHAVES ---
     with st.container(border=True):
         st.subheader("Fase 1: Período Pré-Chaves")
-        st.session_state.financiador_pre = st.radio("Quem financia esta fase?", ["Construtora", "Banco (Caixa, etc.)"], key="fin_pre", horizontal=True)
+        st.radio("Quem financia esta fase?", ["Construtora", "Banco (Caixa, etc.)"], key="financiador_pre", horizontal=True)
         
         col1, col2 = st.columns(2)
-        valor_a_financiar_pre = col1.number_input("Valor total a ser pago na fase pré-chaves", value=123217.46, format="%.2f", key="val_pre")
-        st.session_state.meses_pre = col2.number_input("Nº de meses na fase pré-chaves", value=17, key="meses_pre")
+        # CORREÇÃO: O valor do widget é lido de st.session_state, não atribuído a ele
+        valor_a_financiar_pre = col1.number_input("Valor total a ser pago na fase pré-chaves", value=123217.46, format="%.2f", key="valor_a_financiar_pre")
+        col2.number_input("Nº de meses na fase pré-chaves", value=17, key="meses_pre")
         
         parcela_base_pre = valor_a_financiar_pre / st.session_state.meses_pre if st.session_state.meses_pre > 0 else 0
-        st.session_state.parcelas_mensais_pre = parcela_base_pre
+        st.session_state.parcelas_mensais_pre = parcela_base_pre # Isso é uma atribuição de um valor calculado, está correto.
         st.info(f"O valor base da parcela mensal nesta fase é de **{format_currency(parcela_base_pre)}** (divisão simples). Parcelas extras serão somadas a este valor.")
 
         if st.session_state.financiador_pre == "Construtora":
             with st.expander("Adicionar Parcelas Extras (Semestrais/Anuais)"):
                 st.write("Configure parcelas com valores diferentes que ocorrem em meses específicos.")
-                st.session_state.parcelas_semestrais, st.session_state.parcelas_anuais = {}, {}
+                parcelas_semestrais, parcelas_anuais = {}, {}
                 
                 st.write("**Parcelas Semestrais:**")
                 for i in range(4):
@@ -768,37 +772,39 @@ def setup_ui():
                     mes_sem = cs1.number_input(f"Mês da {i+1}ª semestral", value=6*(i+1) if i<2 else 0, key=f"sem_mes_{i}")
                     valor_sem = cs2.number_input(f"Valor {i+1} (R$)", value=6000.0 if i<2 else 0.0, key=f"sem_val_{i}", format="%.2f")
                     if mes_sem > 0 and valor_sem > 0:
-                        st.session_state.parcelas_semestrais[int(mes_sem)] = valor_sem
+                        parcelas_semestrais[int(mes_sem)] = valor_sem
 
                 st.write("**Parcelas Anuais:**")
                 ca1, ca2 = st.columns(2)
                 mes_anu = ca1.number_input("Mês da anual", value=17, key="anu_mes")
                 valor_anu = ca2.number_input("Valor anual (R$)", value=43300.0, key="anu_val", format="%.2f")
                 if mes_anu > 0 and valor_anu > 0:
-                    st.session_state.parcelas_anuais[int(mes_anu)] = valor_anu
+                    parcelas_anuais[int(mes_anu)] = valor_anu
+                
+                # Atribui os dicionários montados ao session_state. Isso está correto.
+                st.session_state.parcelas_semestrais = parcelas_semestrais
+                st.session_state.parcelas_anuais = parcelas_anuais
 
     # --- 3. FASE PÓS-CHAVES ---
     with st.container(border=True):
         st.subheader("Fase 2: Período Pós-Chaves")
-        st.session_state.financiador_pos = st.radio("Quem financia esta fase?", ["Construtora", "Banco (Caixa, etc.)"], index=1, key="fin_pos", horizontal=True)
+        st.radio("Quem financia esta fase?", ["Construtora", "Banco (Caixa, etc.)"], index=1, key="financiador_pos", horizontal=True)
 
         col3, col4 = st.columns(2)
         saldo_devedor_estimado = st.session_state.valor_total_imovel - st.session_state.valor_entrada - valor_a_financiar_pre
-        valor_a_financiar_pos = col3.number_input("Valor total a ser pago na fase pós-chaves (saldo devedor)", value=saldo_devedor_estimado, format="%.2f", key="val_pos")
-        st.session_state.meses_pos = col4.number_input("Nº de meses na fase pós-chaves (amortização)", value=100, key="meses_pos")
+        valor_a_financiar_pos = col3.number_input("Valor total a ser pago na fase pós-chaves (saldo devedor)", value=saldo_devedor_estimado, format="%.2f", key="valor_a_financiar_pos")
+        col4.number_input("Nº de meses na fase pós-chaves (amortização)", value=100, key="meses_pos")
 
         parcela_base_pos = valor_a_financiar_pos / st.session_state.meses_pos if st.session_state.meses_pos > 0 else 0
-        st.session_state.valor_amortizacao_pos = parcela_base_pos
+        st.session_state.valor_amortizacao_pos = parcela_base_pos # Correto
         st.info(f"O valor base da parcela mensal nesta fase é de **{format_currency(parcela_base_pos)}** (divisão simples). Juros e correções serão aplicados sobre este valor.")
 
     # --- 4. BOTÃO PARA CARREGAR PADRÕES E PARÂMETROS DETALHADOS ---
     st.divider()
     if st.button("Carregar Parâmetros Padrão", help="Preenche as seções abaixo com valores comuns de mercado para agilizar a simulação."):
-        # Padrões da Construtora
         st.session_state.inicio_correcao_pd = 1
         st.session_state.incc_medio_pd = 0.5446
         st.session_state.ipca_medio_pd = 0.4669
-        # Padrões do Banco
         st.session_state.b_juros_pd = 10.0
         st.session_state.b_admin_pd = 25.0
         st.session_state.b_seguro_total_pd = 94.92
@@ -812,15 +818,18 @@ def setup_ui():
     # --- 5. PARÂMETROS DETALHADOS (CONSTRUTORA E BANCO) ---
     st.header("Parâmetros Detalhados")
 
-    # Parâmetros da Construtora (sempre visíveis)
     with st.expander("Parâmetros de Correção (Construtora)", expanded=True):
         pcol1, pcol2, pcol3 = st.columns(3)
-        st.session_state.inicio_correcao = pcol1.number_input("Aplicar correção a partir de qual parcela?", min_value=1, value=st.session_state.get('inicio_correcao_pd', 1))
-        st.session_state.incc_medio = pcol2.number_input("INCC médio mensal (%)", value=st.session_state.get('incc_medio_pd', 0.5446), format="%.4f") / 100
-        st.session_state.ipca_medio = pcol3.number_input("IPCA médio mensal (%)", value=st.session_state.get('ipca_medio_pd', 0.4669), format="%.4f") / 100
+        pcol1.number_input("Aplicar correção a partir de qual parcela?", min_value=1, value=st.session_state.get('inicio_correcao_pd', 1), key="inicio_correcao")
+        incc_percent = pcol2.number_input("INCC médio mensal (%)", value=st.session_state.get('incc_medio_pd', 0.5446), format="%.4f", key="incc_medio_percent")
+        ipca_percent = pcol3.number_input("IPCA médio mensal (%)", value=st.session_state.get('ipca_medio_pd', 0.4669), format="%.4f", key="ipca_medio_percent")
+        
+        # Atribuição de valor calculado. Correto.
+        st.session_state.incc_medio = incc_percent / 100
+        st.session_state.ipca_medio = ipca_percent / 100
+        
         st.sidebar.number_input("Juros Pós-Chaves (% a.a.)", value=12.0, format="%.2f", disabled=True, help="Na lógica de cálculo atual da construtora, os juros são progressivos e não baseados nesta taxa fixa.")
 
-    # Parâmetros do Banco (visíveis se o banco for um financiador)
     if st.session_state.financiador_pre == "Banco (Caixa, etc.)" or st.session_state.financiador_pos == "Banco (Caixa, etc.)":
         with st.expander("Parâmetros do Financiamento Bancário", expanded=True):
             st.info("Para replicar uma simulação da Caixa, use o sistema PRICE e a taxa de juros NOMINAL, mesmo que o documento indique SAC.", icon="💡")
@@ -828,24 +837,24 @@ def setup_ui():
             bcol1, bcol2 = st.columns(2)
             with bcol1:
                 st.subheader("Condições Gerais")
-                st.session_state.taxa_juros_anual = st.number_input("Taxa de Juros Nominal (% a.a.)", value=st.session_state.get('b_juros_pd', 10.0), format="%.4f", key="b_juros")
-                st.session_state.indexador = st.selectbox("Indexador (pós)", ['TR', 'IPCA', 'Fixa'], index=['TR', 'IPCA', 'Fixa'].index(st.session_state.get('indexador_pd', 'TR')), key="b_index")
-                st.session_state.sistema_amortizacao = st.selectbox("Sistema de amortização", ['PRICE', 'SAC'], index=['PRICE', 'SAC'].index(st.session_state.get('sistema_amortizacao_pd', 'PRICE')), key="b_sistema")
+                st.number_input("Taxa de Juros Nominal (% a.a.)", value=st.session_state.get('b_juros_pd', 10.0), format="%.4f", key="taxa_juros_anual")
+                st.selectbox("Indexador (pós)", ['TR', 'IPCA', 'Fixa'], index=['TR', 'IPCA', 'Fixa'].index(st.session_state.get('indexador_pd', 'TR')), key="indexador")
+                st.selectbox("Sistema de amortização", ['PRICE', 'SAC'], index=['PRICE', 'SAC'].index(st.session_state.get('sistema_amortizacao_pd', 'PRICE')), key="sistema_amortizacao")
             
             with bcol2:
                 st.subheader("Taxas e Seguros")
-                st.session_state.taxa_admin_mensal = st.number_input("Taxa de Admin Mensal (R$)", value=st.session_state.get('b_admin_pd', 25.0), format="%.2f", key="b_admin")
-                st.session_state.seguro_total_primeira_parcela = st.number_input("Valor Total do Seguro na 1ª Parcela (R$)", value=st.session_state.get('b_seguro_total_pd', 94.92), format="%.2f", key="b_seguro_total", help="Informe o valor total do seguro (DFI+MIP) que aparece na primeira parcela da sua simulação.")
-                st.session_state.percentual_dfi_estimado = st.slider("Percentual estimado do DFI sobre o seguro total (%)", min_value=0.0, max_value=100.0, value=st.session_state.get('percentual_dfi_estimado_pd', 30.0), step=0.5, help="O seguro é composto de uma parte fixa (DFI) e uma variável (MIP). Ajuste aqui a proporção que você estima ser a parte fixa. Um valor comum fica entre 25% e 40%.", key="b_dfi_perc")
+                st.number_input("Taxa de Admin Mensal (R$)", value=st.session_state.get('b_admin_pd', 25.0), format="%.2f", key="taxa_admin_mensal")
+                st.number_input("Valor Total do Seguro na 1ª Parcela (R$)", value=st.session_state.get('b_seguro_total_pd', 94.92), format="%.2f", key="seguro_total_primeira_parcela", help="Informe o valor total do seguro (DFI+MIP) que aparece na primeira parcela da sua simulação.")
+                st.slider("Percentual estimado do DFI sobre o seguro total (%)", min_value=0.0, max_value=100.0, value=st.session_state.get('percentual_dfi_estimado_pd', 30.0), step=0.5, help="O seguro é composto de uma parte fixa (DFI) e uma variável (MIP). Ajuste aqui a proporção que você estima ser a parte fixa.", key="percentual_dfi_estimado")
             
             st.subheader("Juros de Obra e Correções Futuras")
-            st.session_state.metodo_calculo_juros = st.selectbox("Método de Evolução da Obra", ['Progressiva (S-Curve)', 'Linear', 'Manual'], index=0, help="Define como o percentual de conclusão da obra evolui. 'S-Curve' é mais realista que 'Linear'.")
+            st.selectbox("Método de Evolução da Obra", ['Progressiva (S-Curve)', 'Linear', 'Manual'], index=0, help="Define como o percentual de conclusão da obra evolui.", key="metodo_calculo_juros")
             if st.session_state.metodo_calculo_juros == 'Manual':
-                 st.session_state.marcos_liberacao = st.text_area("Defina os marcos (mês da obra: % concluído)", "6:20, 12:50, 18:90", help="Formato: mes_da_obra:percentual_total, ...")
+                 st.text_area("Defina os marcos (mês da obra: % concluído)", "6:20, 12:50, 18:90", help="Formato: mes_da_obra:percentual_total, ...", key="marcos_liberacao")
             
             jcol1, jcol2 = st.columns(2)
-            st.session_state.tr_medio = jcol1.number_input("TR média mensal (decimal)", value=st.session_state.get('tr_medio_pd', 0.0), format="%.6f", help="Usado se não houver dados do SGS")
-            st.session_state.ipca_medio_banco = jcol2.number_input("IPCA média mensal (decimal)", value=st.session_state.get('ipca_medio_banco_pd', 0.004669), format="%.6f", help="Usado se não houver dados do SGS")
+            jcol1.number_input("TR média mensal (decimal)", value=st.session_state.get('tr_medio_pd', 0.0), format="%.6f", help="Usado se não houver dados do SGS", key="tr_medio")
+            jcol2.number_input("IPCA média mensal (decimal)", value=st.session_state.get('ipca_medio_banco_pd', 0.004669), format="%.6f", help="Usado se não houver dados do SGS", key="ipca_medio_banco")
 
 def main():
     st.set_page_config(layout="wide", page_title="Simulador e Comparador de Financiamento")
