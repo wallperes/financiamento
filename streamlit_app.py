@@ -734,23 +734,27 @@ def carregar_parametros_padrao():
     for key, value in defaults.items():
         st.session_state[key] = value
     st.session_state.parametros_carregados = "Padrão"
-    st.toast("Parâmetros padrão foram carregados!", icon="⚙️")
 
 
 def limpar_parametros_detalhados():
-    """Limpa os parâmetros detalhados do session_state."""
-    keys_to_clear = [
-        'inicio_correcao', 'incc_medio_percent', 'ipca_medio_percent',
-        'taxa_juros_anual', 'indexador', 'sistema_amortizacao',
-        'taxa_admin_mensal', 'seguro_total_primeira_parcela',
-        'percentual_dfi_estimado', 'tr_medio', 'ipca_medio_banco',
-        'poupanca_medio', 'metodo_calculo_juros', 'marcos_liberacao'
-    ]
-    for key in keys_to_clear:
-        if key in st.session_state:
-            del st.session_state[key]
+    """Limpa os parâmetros detalhados do session_state, definindo-os para valores neutros."""
+    st.session_state.inicio_correcao = 1
+    st.session_state.incc_medio_percent = 0.0
+    st.session_state.ipca_medio_percent = 0.0
+    st.session_state.taxa_juros_anual = 0.0
+    st.session_state.indexador = 'TR'
+    st.session_state.sistema_amortizacao = 'PRICE'
+    st.session_state.taxa_admin_mensal = 0.0
+    st.session_state.seguro_total_primeira_parcela = 0.0
+    st.session_state.percentual_dfi_estimado = 0.0
+    st.session_state.tr_medio = 0.0
+    st.session_state.ipca_medio_banco = 0.0
+    st.session_state.poupanca_medio = 0.0
+    st.session_state.metodo_calculo_juros = 'Progressiva (S-Curve)'
+    if 'marcos_liberacao' in st.session_state:
+        st.session_state.marcos_liberacao = ""
+    
     st.session_state.parametros_carregados = "Limpos"
-    st.toast("Parâmetros detalhados foram limpos.", icon="🗑️")
 
 
 def setup_ui():
@@ -759,9 +763,9 @@ def setup_ui():
     with st.expander("Parâmetros Gerais do Imóvel e Contrato", expanded=True):
         c1, c2, c3 = st.columns(3)
         with c1:
-            st.date_input("Início da obra (empreendimento)", value=date(2024, 10, 1), key="data_inicio_obra")
-            st.text_input("Mês da assinatura do seu contrato (MM/AAAA)", "04/2025", key="mes_assinatura")
-            st.text_input("Mês da 1ª parcela (MM/AAAA)", "05/2025", key="mes_primeira_parcela")
+            st.date_input("Início da obra (empreendimento)", value=date(2025, 10, 1), key="data_inicio_obra")
+            st.text_input("Mês da assinatura do seu contrato (MM/AAAA)", "04/2026", key="mes_assinatura")
+            st.text_input("Mês da 1ª parcela (MM/AAAA)", "05/2026", key="mes_primeira_parcela")
         with c2:
             st.number_input("Valor total do imóvel", value=455750.0, format="%.2f", key="valor_total_imovel")
             st.number_input("Valor total da entrada", value=22270.54, format="%.2f", key="valor_entrada")
@@ -770,12 +774,10 @@ def setup_ui():
             if st.session_state.tipo_pagamento_entrada == 'Parcelada':
                 st.number_input("Nº de parcelas da entrada", min_value=1, value=3, key="num_parcelas_entrada")
             else:
-                # Garante que a chave exista com valor 0 se não for parcelada
                 st.session_state.num_parcelas_entrada = 0
 
     st.header("Definição das Fases do Financiamento")
 
-    # --- FASE PRÉ-CHAVES ---
     with st.container(border=True):
         st.subheader("Fase 1: Período Pré-Chaves")
         st.radio("Quem financia esta fase?", ["Construtora", "Banco (Caixa, etc.)"], key="financiador_pre", horizontal=True, on_change=carregar_parametros_padrao)
@@ -819,7 +821,6 @@ def setup_ui():
                      f"do total da fase e dividindo pelo nº de meses.")
         st.info(info_text)
 
-    # --- FASE PÓS-CHAVES ---
     with st.container(border=True):
         st.subheader("Fase 2: Período Pós-Chaves")
         st.radio("Quem financia esta fase?", ["Construtora", "Banco (Caixa, etc.)"], index=1, key="financiador_pos", horizontal=True, on_change=carregar_parametros_padrao)
@@ -833,25 +834,26 @@ def setup_ui():
         st.session_state.valor_amortizacao_pos = parcela_base_pos
         st.info(f"O valor base da parcela mensal nesta fase é de **{format_currency(parcela_base_pos)}** (divisão simples). Juros e correções serão aplicados sobre este valor.")
 
-    # --- SUA REALIDADE ---
     with st.container(border=True):
         st.subheader("Sua Realidade")
         st.write(f"Você está informando que seu financiamento foi feito com **{st.session_state.financiador_pre}** na fase pré-chaves e **{st.session_state.financiador_pos}** na fase pós-chaves. O resultado correspondente será destacado abaixo.")
     
-    # --- CONTROLE DE PARÂMETROS PADRÃO ---
     with st.container(border=True):
-        st.markdown("Use o botão abaixo para limpar os parâmetros detalhados e inserir os seus manualmente. Os padrões são carregados automaticamente ao selecionar as fases acima.")
+        st.subheader("Configuração Rápida de Parâmetros")
+        st.markdown("Use os botões para (re)carregar valores padrão de mercado ou para limpar os campos e inserir valores manuais.")
         
-        col_btn, col_msg = st.columns([1, 3])
-        with col_btn:
-            st.button("Limpar Parâmetros Detalhados", on_click=limpar_parametros_detalhados, use_container_width=True)
+        c1, c2, c3 = st.columns([1, 1, 2])
+        with c1:
+            st.button("Carregar Padrões", on_click=carregar_parametros_padrao, use_container_width=True, type="primary")
+        with c2:
+            st.button("Limpar Parâmetros", on_click=limpar_parametros_detalhados, use_container_width=True)
         
-        with col_msg:
+        with c3:
             status = st.session_state.get('parametros_carregados')
             if status == "Padrão":
                 st.success("✔️ Parâmetros padrão foram carregados. Você pode ajustá-los abaixo.")
             elif status == "Limpos":
-                st.warning("⚠️ Campos de parâmetros detalhados foram limpos. Insira novos valores.")
+                st.warning("⚠️ Campos de parâmetros foram limpos. Insira novos valores ou carregue os padrões.")
             
     st.header("Parâmetros Detalhados")
 
@@ -898,12 +900,10 @@ def main():
     st.set_page_config(layout="wide", page_title="Simulador e Comparador de Financiamento")
     st.title("Simulador de Financiamento Imobiliário 🚧🏗️")
     
-    # Inicializa session_state para os dataframes de resultado
     for key in ['df_resultado', 'df_banco', 'df_combinado', 'df_associativo', 'cet_construtora', 'cet_banco', 'cet_combinado', 'cet_associativo']:
         if key not in st.session_state:
             st.session_state[key] = pd.DataFrame() if 'df' in key else 0.0
 
-    # Carrega os parâmetros padrão na primeira execução
     if 'parametros_carregados' not in st.session_state:
         carregar_parametros_padrao()
             
@@ -947,14 +947,12 @@ def main():
     st.header("Gerar Simulação e Comparar Cenários")
     
     def run_full_simulation(sim_params, real_values=None):
-        # Limpa resultados antigos antes de rodar uma nova simulação
         st.session_state.df_resultado = pd.DataFrame()
         st.session_state.df_banco = pd.DataFrame()
         st.session_state.df_combinado = pd.DataFrame()
         st.session_state.df_associativo = pd.DataFrame()
         st.session_state.cet_construtora, st.session_state.cet_banco, st.session_state.cet_combinado, st.session_state.cet_associativo = 0.0, 0.0, 0.0, 0.0
 
-        # Roda a simulação principal
         st.session_state.df_resultado = simular_financiamento(sim_params, real_values)
         
         if not st.session_state.df_resultado.empty:
