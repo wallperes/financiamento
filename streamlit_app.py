@@ -249,7 +249,6 @@ def buscar_indices_bc(mes_inicial, meses_total):
         start_str = data_inicio_busca.strftime("%d/%m/%Y")
         end_str = data_fim_busca.strftime("%d/%m/%Y")
         
-        # Adicionado código 4390 para a Poupança
         df = sgs.dataframe([192, 433, 226, 4390], start=start_str, end=end_str)
         if df.empty:
             return {}, 0, pd.DataFrame()
@@ -627,7 +626,7 @@ def simular_cenario_associativo(params_construtora, params_banco, valores_reais=
     return df_final.sort_values('DataObj').reset_index(drop=True)
 
 # ============================================
-# FUNÇÕES DE INTERFACE (Sem alterações na lógica interna)
+# FUNÇÕES DE INTERFACE (MODIFICADO)
 # ============================================
 
 def display_detailed_table(df, title):
@@ -641,7 +640,7 @@ def display_detailed_table(df, title):
             
         st.dataframe(df_display.style.format(format_dict), use_container_width=True, height=400)
 
-def mostrar_comparacao(df_c, df_b, df_comb, df_assoc, cet_c, cet_b, cet_comb, cet_assoc, user_scenario_pre, user_scenario_pos):
+def mostrar_comparacao(df_c, df_comb, df_assoc, cet_c, cet_comb, cet_assoc, user_scenario_pre, user_scenario_pos):
     st.header("Resultados da Comparação")
 
     # --- LÓGICA PARA IDENTIFICAR O CENÁRIO DO USUÁRIO ---
@@ -656,8 +655,6 @@ def mostrar_comparacao(df_c, df_b, df_comb, df_assoc, cet_c, cet_b, cet_comb, ce
     with st.expander("Clique aqui para entender os cenários de comparação"):
         st.markdown("""
             - **🏗️ Direto com a Construtora:** O modelo mais simples. Você paga todas as parcelas, do início ao fim, diretamente para a construtora, que financia o saldo devedor após as chaves com suas próprias regras de juros.
-
-            - **🏦 Financiamento Total no Banco (Hipotético):** Este é um cenário **"E se?"**. Ele ignora os pagamentos da fase de obra e simula como seria se você financiasse o valor total do imóvel (menos a entrada) diretamente com o banco desde o primeiro dia, pagando juros de obra e amortização pelo mesmo prazo total. Útil para comparar o "custo do dinheiro" do banco.
             
             - **🔑 Financiamento Pós-Chaves (Sequencial):** Um processo em duas etapas. **1)** Você paga toda a fase de obra (entrada, mensais, extras) para a construtora. **2)** No dia em que recebe as chaves, o saldo devedor restante é quitado através de um novo financiamento com o banco. **Neste modelo não há pagamento de Juros de Obra**.
 
@@ -665,11 +662,10 @@ def mostrar_comparacao(df_c, df_b, df_comb, df_assoc, cet_c, cet_b, cet_comb, ce
         """)
         
     c_custo_total = df_c['Parcela Total (R$)'].sum() if not df_c.empty else 0
-    b_custo_total = df_b['Parcela Total (R$)'].sum() if not df_b.empty else 0
     comb_custo_total = df_comb['Parcela Total (R$)'].sum() if not df_comb.empty else 0
     assoc_custo_total = df_assoc['Parcela Total (R$)'].sum() if not df_assoc.empty else 0
     
-    res1, res2, res3, res4 = st.columns(4)
+    res1, res2, res3 = st.columns(3)
     
     def display_scenario(container, title, df, cet, base_cost, user_scenario_name):
         with container:
@@ -684,15 +680,15 @@ def mostrar_comparacao(df_c, df_b, df_comb, df_assoc, cet_c, cet_b, cet_comb, ce
                 st.metric("CET (Custo Efetivo Total)", f"{cet:.2f}% a.a.")
 
     display_scenario(res1, "Direto com a Construtora", df_c, cet_c, c_custo_total, cenario_usuario)
-    display_scenario(res2, "Financiamento Total no Banco (Hipotético)", df_b, cet_b, c_custo_total, cenario_usuario)
-    display_scenario(res3, "Financiamento Pós-Chaves (Sequencial)", df_comb, cet_comb, c_custo_total, cenario_usuario)
-    display_scenario(res4, "Financiamento Associativo (Simultâneo)", df_assoc, cet_assoc, c_custo_total, cenario_usuario)
+    display_scenario(res2, "Financiamento Pós-Chaves (Sequencial)", df_comb, cet_comb, c_custo_total, cenario_usuario)
+    display_scenario(res3, "Financiamento Associativo (Simultâneo)", df_assoc, cet_assoc, c_custo_total, cenario_usuario)
 
     all_dfs = [
         df[['DataObj', 'Parcela Total (R$)']].rename(columns={'Parcela Total (R$)': name})
         for df, name in [
-            (df_c, 'Construtora'), (df_b, 'Banco (Hipotético)'),
-            (df_comb, 'Pós-Chaves (Sequencial)'), (df_assoc, 'Associativo (Simultâneo)')
+            (df_c, 'Construtora'),
+            (df_comb, 'Pós-Chaves (Sequencial)'),
+            (df_assoc, 'Associativo (Simultâneo)')
         ] if not df.empty
     ]
     
@@ -706,7 +702,6 @@ def mostrar_comparacao(df_c, df_b, df_comb, df_assoc, cet_c, cet_b, cet_comb, ce
         
     st.subheader("Análise Detalhada dos Fluxos de Pagamento")
     if not df_c.empty: display_detailed_table(df_c, "Direto com a Construtora")
-    if not df_b.empty: display_detailed_table(df_b, "Financiamento Total no Banco (Hipotético)")
     if not df_comb.empty: display_detailed_table(df_comb, "Financiamento Pós-Chaves (Sequencial)")
     if not df_assoc.empty: display_detailed_table(df_assoc, "Financiamento Associativo (Simultâneo)")
 
@@ -900,7 +895,8 @@ def main():
     st.set_page_config(layout="wide", page_title="Simulador e Comparador de Financiamento")
     st.title("Simulador de Financiamento Imobiliário 🚧🏗️")
     
-    for key in ['df_resultado', 'df_banco', 'df_combinado', 'df_associativo', 'cet_construtora', 'cet_banco', 'cet_combinado', 'cet_associativo']:
+    # MODIFICADO: Removido df_banco e cet_banco da inicialização
+    for key in ['df_resultado', 'df_combinado', 'df_associativo', 'cet_construtora', 'cet_combinado', 'cet_associativo']:
         if key not in st.session_state:
             st.session_state[key] = pd.DataFrame() if 'df' in key else 0.0
 
@@ -947,37 +943,29 @@ def main():
     st.header("Gerar Simulação e Comparar Cenários")
     
     def run_full_simulation(sim_params, real_values=None):
+        # MODIFICADO: Removido reset de df_banco e cet_banco
         st.session_state.df_resultado = pd.DataFrame()
-        st.session_state.df_banco = pd.DataFrame()
         st.session_state.df_combinado = pd.DataFrame()
         st.session_state.df_associativo = pd.DataFrame()
-        st.session_state.cet_construtora, st.session_state.cet_banco, st.session_state.cet_combinado, st.session_state.cet_associativo = 0.0, 0.0, 0.0, 0.0
+        st.session_state.cet_construtora, st.session_state.cet_combinado, st.session_state.cet_associativo = 0.0, 0.0, 0.0
 
         st.session_state.df_resultado = simular_financiamento(sim_params, real_values)
         
         if not st.session_state.df_resultado.empty:
-            params_gerais_banco_hipotetico = {
-                'valor_total_imovel': params['valor_total_imovel'], 
-                'valor_entrada': params['valor_entrada'], 
-                'mes_assinatura': params['mes_primeira_parcela']
-            }
-            st.session_state.df_banco = simular_financiamento_bancario_completo(params_gerais_banco_hipotetico, params_banco, params, real_values)
+            # MODIFICADO: Removido todo o bloco de cálculo do cenário hipotético
             
             st.session_state.df_combinado = simular_cenario_combinado(params.copy(), params_banco, real_values)
             st.session_state.df_associativo = simular_cenario_associativo(params.copy(), params_banco, real_values)
             
-            for scenario in ['construtora', 'banco', 'combinado', 'associativo']:
-                df_key = {'construtora': 'df_resultado', 'banco': 'df_banco', 'combinado': 'df_combinado', 'associativo': 'df_associativo'}[scenario]
+            # MODIFICADO: Simplificado loop de cálculo do CET
+            for scenario in ['construtora', 'combinado', 'associativo']:
+                df_key = {'construtora': 'df_resultado', 'combinado': 'df_combinado', 'associativo': 'df_associativo'}[scenario]
                 cet_key = f'cet_{scenario}'
                 df = st.session_state[df_key]
                 if not df.empty:
-                    if scenario == 'banco':
-                        valor_financiado_liquido = params_gerais_banco_hipotetico['valor_total_imovel'] - params_gerais_banco_hipotetico['valor_entrada']
-                        pagamentos_futuros = df['Parcela Total (R$)'].tolist()
-                    else:
-                        pagamento_t0 = df['Parcela Total (R$)'].iloc[0] if not df[df['Fase'] == 'Assinatura'].empty else 0
-                        valor_financiado_liquido = sim_params['valor_total_imovel'] - pagamento_t0
-                        pagamentos_futuros = df['Parcela Total (R$)'][df['Fase'] != 'Assinatura'].tolist()
+                    pagamento_t0 = df['Parcela Total (R$)'].iloc[0] if not df[df['Fase'] == 'Assinatura'].empty else 0
+                    valor_financiado_liquido = sim_params['valor_total_imovel'] - pagamento_t0
+                    pagamentos_futuros = df['Parcela Total (R$)'][df['Fase'] != 'Assinatura'].tolist()
                     st.session_state[cet_key] = calcular_cet(valor_financiado_liquido, pagamentos_futuros)
 
     col1, col2, col3, col4 = st.columns(4)
@@ -1013,13 +1001,12 @@ def main():
             run_full_simulation(params_sim)
             
     if not st.session_state.df_resultado.empty:
+        # MODIFICADO: Removido df_banco e cet_banco da chamada da função
         mostrar_comparacao(
             st.session_state.df_resultado,
-            st.session_state.df_banco,
             st.session_state.df_combinado,
             st.session_state.df_associativo,
             st.session_state.cet_construtora,
-            st.session_state.cet_banco,
             st.session_state.cet_combinado,
             st.session_state.cet_associativo,
             st.session_state.financiador_pre,
